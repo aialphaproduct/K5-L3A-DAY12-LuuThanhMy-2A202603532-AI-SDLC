@@ -41,10 +41,18 @@ let W, H;
 function resize(){ W = c.width = innerWidth; H = c.height = innerHeight; }
 onresize = resize; resize();
 
-// World -> screen isometric-ish projection. Map radius is ~45m across all nights.
+// World (X right, Z forward/"up") -> screen, straight top-down, camera
+// centered on the player. Kept 1:1 with controls on purpose: world +X is
+// screen right, world +Z is screen up (canvas Y grows downward, so Z is
+// subtracted) - an isometric skew here would make a single arrow key move
+// the player diagonally on screen, which does not match what the key says.
+// Following the player also keeps them from ever landing under the fixed
+// HUD panel, which a world-fixed camera could do near spawn.
 const SCALE = 6.5;
 function toScreen(px, pz){
-  return [W/2 + (px - pz) * SCALE * 0.72, H*0.55 + (px + pz) * SCALE * 0.36];
+  const ox = (state && state.player) ? state.player.pos[0] : 0;
+  const oz = (state && state.player) ? state.player.pos[2] : 0;
+  return [W/2 + (px - ox) * SCALE, H*0.55 - (pz - oz) * SCALE];
 }
 
 let state = null, lost = false;
