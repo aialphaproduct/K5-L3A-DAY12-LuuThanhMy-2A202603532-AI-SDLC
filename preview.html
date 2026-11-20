@@ -1,2 +1,139 @@
-<!doctype html><html lang="vi"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dao Den Long</title><style>html,body{margin:0;height:100%;overflow:hidden;background:#090a18;color:#fff;font:14px system-ui}canvas{width:100%;height:100%}.hud{position:fixed;inset:22px 24px auto;display:flex;justify-content:space-between}.brand{color:#f2c77a;letter-spacing:3px}.panel{background:#111426dd;border:1px solid #66506b;border-radius:8px;padding:12px 16px;line-height:1.8}.controls{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:#101322dd;padding:10px 16px;border:1px solid #66506b;border-radius:8px;color:#d6cde0;white-space:nowrap}.title{position:fixed;top:45%;width:100%;text-align:center;font:clamp(30px,6vw,70px) Georgia;color:#ffd58a;text-shadow:0 3px 24px #f29f37}.title small{display:block;font:14px system-ui;letter-spacing:2px}</style><canvas id="c"></canvas><div class="hud"><div><div class="brand">ĐẢO ĐÈN LỒNG</div><small>ĐÊM 1 · ĐẢO BẾN</small></div><div class="panel">✦ Đom đóm <b id="m">3</b> / 5<br>♥ Lửa <b>3</b> / 3<br>◎ Điểm <b id="s">0</b><br>◉ Đèn <b id="l">1</b> / 5</div></div><div class="title">Đảo Đèn Lồng<small>WASD DI CHUYỂN · SPACE TỎA SÁNG</small></div><div class="controls">W A S D di chuyển · SPACE xua Bóng Mực · E thắp đèn</div><script>
-const c=document.querySelector('#c'),x=c.getContext('2d');let W,H,k={},p={x:0,y:0},ls=[],ms=[],ss=[{x:4,y:-3}],lit=1,score=0;function size(){W=c.width=innerWidth;H=c.height=innerHeight;ls=[];for(let i=0;i<5;i++){let a=i*6.28/5;ls.push({x:Math.cos(a)*180,y:Math.sin(a)*180,on:i==0})}ms=Array.from({length:20},(_,i)=>({x:Math.cos(i*2.4)*(70+i%5*20),y:Math.sin(i*2.4)*(70+i%5*20)}))}onresize=size;size();onkeydown=e=>k[e.key.toLowerCase()]=1;onkeyup=e=>k[e.key.toLowerCase()]=0;function loop(){requestAnimationFrame(loop);x.fillStyle='#101025';x.fillRect(0,0,W,H);let q=(a,b)=>[W/2+(a-b)*.8,H*.57+(a+b)*.32];x.fillStyle='#39334b';x.beginPath();for(let i=0;i<8;i++){let a=i*.785,[u,v]=q(Math.cos(a)*300,Math.sin(a)*300);i?x.lineTo(u,v):x.moveTo(u,v)}x.closePath();x.fill();if(k.w)p.y-=2;if(k.s)p.y+=2;if(k.a)p.x-=2;if(k.d)p.x+=2;function dot(o,col,r){let [u,v]=q(o.x,o.y);x.fillStyle=col;x.beginPath();x.arc(u,v,r,0,7);x.fill()}ls.forEach(o=>{let[u,v]=q(o.x,o.y);x.fillStyle=o.on?'#ffcf70':'#67506e';x.fillRect(u-4,v-35,8,35);dot({x:o.x,y:o.y-35},o.on?'#ffdc82':'#67506e',10)});ms.forEach(o=>dot({x:o.x,y:o.y-15},'#fff2a0',4));ss.forEach(o=>dot(o,'#2b1a3b',16));dot({x:p.x,y:p.y-20},'#e7ad6d',13);if(k.e){let o=ls.find(a=>!a.on&&Math.hypot(a.x-p.x,a.y-p.y)<45);if(o){o.on=1;lit++;score+=100;document.querySelector('#l').textContent=lit;document.querySelector('#s').textContent=score}k.e=0}}loop();</script></html>
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dao Den Long - Preview</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#090a18;color:#fff;font:14px system-ui}
+  canvas{width:100%;height:100%;display:block}
+  .hud{position:fixed;inset:16px 20px auto;display:flex;justify-content:space-between;pointer-events:none}
+  .brand{color:#f2c77a;letter-spacing:3px;font-weight:600}
+  .panel{background:#111426dd;border:1px solid #66506b;border-radius:8px;padding:10px 14px;line-height:1.7;min-width:180px}
+  .controls{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#101322dd;padding:8px 14px;border:1px solid #66506b;border-radius:8px;color:#d6cde0;white-space:nowrap;pointer-events:none}
+  .title{position:fixed;top:40%;width:100%;text-align:center;font:clamp(24px,5vw,56px) Georgia;color:#ffd58a;text-shadow:0 3px 24px #f29f37;pointer-events:none;display:none}
+  .title.show{display:block}
+  .title small{display:block;font:14px system-ui;letter-spacing:2px;margin-top:10px}
+  .warn{position:fixed;top:16px;left:50%;transform:translateX(-50%);background:#5a1f1fdd;border:1px solid #b24;border-radius:8px;padding:8px 14px;display:none}
+  .warn.show{display:block}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hud">
+  <div><div class="brand">DAO DEN LONG</div><small id="nightLabel">DEM 1</small></div>
+  <div class="panel">
+    Diem <b id="score">0</b><br>
+    Dom dom <b id="carried">0</b>/<b id="cap">10</b><br>
+    Lua <b id="flames">3</b>/3<br>
+    Den <b id="lit">0</b>/<b id="total">5</b><br>
+    Thoi gian <b id="time">--</b>s
+  </div>
+</div>
+<div class="title" id="title"><span id="titleText"></span><small>Nhan R de choi lai</small></div>
+<div class="controls">W A S D di chuyen &middot; E thap den &middot; SPACE toa sang &middot; R choi lai</div>
+<div class="warn" id="warn">Mat ket noi server. Dang thu lai...</div>
+<script>
+const c = document.querySelector('#c'), x = c.getContext('2d');
+let W, H;
+function resize(){ W = c.width = innerWidth; H = c.height = innerHeight; }
+onresize = resize; resize();
+
+// World -> screen isometric-ish projection. Map radius is ~45m across all nights.
+const SCALE = 6.5;
+function toScreen(px, pz){
+  return [W/2 + (px - pz) * SCALE * 0.72, H*0.55 + (px + pz) * SCALE * 0.36];
+}
+
+let state = null, lost = false;
+const keys = {w:0,a:0,s:0,d:0,e:0,space:0};
+
+function sendInput(){
+  const x_ = keys.d - keys.a, z_ = keys.w - keys.s;
+  fetch('/api/input', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({x:x_, z:z_, interact:!!keys.e, pulse:!!keys.space})}).catch(()=>{});
+}
+addEventListener('keydown', e=>{
+  const k = e.key.toLowerCase();
+  if (k in keys){ keys[k]=1; sendInput(); }
+  if (k===' '){ keys.space=1; sendInput(); }
+  if (k==='r' && lost){ fetch('/api/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).catch(()=>{}); }
+});
+addEventListener('keyup', e=>{
+  const k = e.key.toLowerCase();
+  if (k in keys){ keys[k]=0; sendInput(); }
+  if (k===' '){ keys.space=0; sendInput(); }
+});
+
+async function poll(){
+  try{
+    const r = await fetch('/api/state');
+    state = await r.json();
+    document.querySelector('#warn').classList.remove('show');
+  }catch(e){
+    document.querySelector('#warn').classList.add('show');
+  }
+  setTimeout(poll, 33); // ~30 Hz state poll; rendering itself runs on rAF
+}
+poll();
+
+function draw(){
+  requestAnimationFrame(draw);
+  x.fillStyle = '#0d0e1c'; x.fillRect(0,0,W,H);
+  if (!state){ return; }
+
+  const night = state.night || 1;
+  const nightBg = {1:'#0d0e1c', 2:'#0a0d1c', 3:'#0a0a18'}[night] || '#0d0e1c';
+  x.fillStyle = nightBg; x.fillRect(0,0,W,H);
+
+  // island floor
+  x.fillStyle = '#211c33';
+  x.beginPath();
+  const R = night===3 ? 45 : (night===2 ? 30 : 40);
+  for (let i=0;i<32;i++){
+    const a = i/32*Math.PI*2;
+    const [sx,sy] = toScreen(Math.cos(a)*R, Math.sin(a)*R);
+    i? x.lineTo(sx,sy) : x.moveTo(sx,sy);
+  }
+  x.closePath(); x.fill();
+
+  function dot(px,pz,py,col,r){
+    const [sx,sy] = toScreen(px,pz);
+    x.fillStyle = col; x.beginPath(); x.arc(sx, sy - (py||0)*SCALE*0.5, r, 0, 7); x.fill();
+  }
+
+  (state.lanterns||[]).forEach(l=>{
+    const [sx,sy] = toScreen(l.pos[0], l.pos[2]);
+    x.fillStyle = l.lit ? '#ffcf70' : '#67506e';
+    x.fillRect(sx-4, sy-34, 8, 34);
+    dot(l.pos[0], l.pos[2], 2.2, l.lit ? '#ffdc82' : '#67506e', 11);
+  });
+  (state.motes||[]).forEach(m=> dot(m.pos[0], m.pos[2], 0.4, '#fff2a0', 3.5));
+  (state.charms||[]).forEach(ch=> { if (ch.available !== false) dot(ch.pos[0], ch.pos[2], 0.5, '#78dcff', 6); });
+  (state.shades||[]).forEach(s=> dot(s.pos[0], s.pos[2], 0.8, s.state==='stunned' ? '#5ab4ff' : '#2b1a3b', 13));
+  (state.drifters||[]).forEach(d=> dot(d.pos[0], d.pos[2], 0.7, '#b23cb2', 10));
+  const p = state.player;
+  if (p) dot(p.pos[0], p.pos[2], 0.9, '#e7ad6d', 12);
+
+  document.querySelector('#score').textContent = state.score ?? 0;
+  document.querySelector('#carried').textContent = p ? p.carried : 0;
+  document.querySelector('#flames').textContent = p ? p.flames : 3;
+  document.querySelector('#lit').textContent = (state.lanterns||[]).filter(l=>l.lit).length;
+  document.querySelector('#total').textContent = (state.lanterns||[]).length;
+  document.querySelector('#time').textContent = (state.time_left_s ?? 0).toFixed(0);
+  document.querySelector('#nightLabel').textContent = 'DEM ' + night;
+
+  const titleEl = document.querySelector('#title');
+  if (state.state === 'won' || state.state === 'lost'){
+    lost = true;
+    titleEl.classList.add('show');
+    document.querySelector('#titleText').textContent = state.state === 'won' ? 'THANG!' : 'THUA!';
+  } else {
+    lost = false;
+    titleEl.classList.remove('show');
+  }
+}
+draw();
+</script>
+</body>
+</html>

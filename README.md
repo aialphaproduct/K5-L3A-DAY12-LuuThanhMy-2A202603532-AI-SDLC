@@ -1,8 +1,8 @@
 # Day 12 — AI SDLC: Đảo Đèn Lồng
 
-## Phase 1 prototype
+## Phase 2 prototype
 
-This repository contains the Phase 1 playable prototype and deterministic headless contract. Install and run in three commands:
+This repository contains the Phase 2 three-night prototype and deterministic Contract v1.1 headless runner. Install and run in three commands:
 
 ```bash
 python3 -m pip install -r requirements.txt
@@ -10,9 +10,13 @@ python3 -m unittest discover -s tests
 python3 main.py
 ```
 
-Headless example: `python3 main.py --headless --seed 1 --night 1 --ticks 600 --out run.jsonl`.
+Headless examples: `python3 main.py --headless --seed 1 --night 1 --ticks 600 --out run.jsonl` and replace `--night` with `2` or `3`.
 
 Controls in the visual prototype are WASD to move, E to interact/light, and Space to pulse. The scoring rules and all tuning values are in `game.contract.json`; the simulation is authoritative for automated tests.
+
+### Browser preview (no Ursina/GPU required)
+
+`python3 server_preview.py --night 1` serves the real `Game` simulation over HTTP and renders it on a 2D canvas at `http://localhost:8787/` — same controls as above, R to restart. Visual-only, like `visual.py`: the headless runner stays the single source of truth for grading.
 
 ### Sáng tạo của tôi
 

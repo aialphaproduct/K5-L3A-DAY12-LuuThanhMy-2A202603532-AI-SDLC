@@ -101,7 +101,15 @@ def launch():
             player.rotation_y = math.degrees(math.atan2(fx, fz))
 
         cam_target = player.position + Vec3(0, 11, -14)
-        camera.position = Vec3(*[camera.position[i] + (cam_target[i] - camera.position[i]) * min(1, dt * 8) for i in range(3)])
+        if not clock.get('framed'):
+            # Snap on the very first frame: Ursina/Panda3D settles window size
+            # and aspect ratio right as rendering starts, which can reset or
+            # fight a camera position set earlier (before app.run()). Setting
+            # it here, after at least one real frame, sticks.
+            camera.position = cam_target
+            clock['framed'] = True
+        else:
+            camera.position = Vec3(*[camera.position[i] + (cam_target[i] - camera.position[i]) * min(1, dt * 8) for i in range(3)])
         camera.look_at(player)
 
         if not was_pulse and game.input.get('pulse'):
