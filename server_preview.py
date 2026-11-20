@@ -84,9 +84,12 @@ def make_handler(server: GameServer):
             if path in PAGES:
                 body = (ROOT / PAGES[path]).read_bytes()
                 self._send(200, body, 'text/html; charset=utf-8')
-            elif self.path == '/api/state':
+            elif path == '/api/state':
                 body = json.dumps(server.snapshot()).encode('utf-8')
                 self._send(200, body)
+            elif path == '/api/leaderboard':
+                import leaderboard
+                self._send(200, json.dumps({'entries': leaderboard.load()}, ensure_ascii=False).encode('utf-8'))
             else:
                 self._send(404, b'{"error":"not found"}')
 
@@ -104,6 +107,13 @@ def make_handler(server: GameServer):
                 night = data.get('night')
                 server.reset(night=int(night) if night else None)
                 self._send(200, b'{"ok":true}')
+            elif self.path == '/api/leaderboard':
+                import leaderboard
+                try:
+                    entries = leaderboard.add(data.get('name', ''), data.get('score', 0), data.get('nights_won', 0), server.seed)
+                    self._send(200, json.dumps({'entries': entries}, ensure_ascii=False).encode('utf-8'))
+                except (ValueError, TypeError) as e:
+                    self._send(400, json.dumps({'error': str(e)}, ensure_ascii=False).encode('utf-8'))
             else:
                 self._send(404, b'{"error":"not found"}')
 
@@ -117,19 +127,17 @@ def make_handler(server: GameServer):
     return Handler
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument('--port', type=int, default=8787)
-    ap.add_argument('--night', type=int, default=1, choices=(1, 2, 3))
-    ap.add_argument('--seed', type=int, default=1)
-    a = ap.parse_args()
-
-    server = GameServer(night=a.night, seed=a.seed)
+def serve(port=8787, night=1, seed=1, host='127.0.0.1', open_browser=False):
+    server = GameServer(night=night, seed=seed)
     sim_thread = threading.Thread(target=server.loop, daemon=True)
     sim_thread.start()
 
-    httpd = ThreadingHTTPServer(('127.0.0.1', a.port), make_handler(server))
-    print(f'Preview running at http://localhost:{a.port}/')
+    httpd = ThreadingHTTPServer((host, port), make_handler(server))
+    url = f'http://localhost:{port}/'
+    print(f'Dao Den Long running at {url}  (Ctrl+C to stop)')
+    if open_browser:
+        import webbrowser
+        threading.Timer(0.8, lambda: webbrowser.open(url)).start()
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
@@ -137,6 +145,16 @@ def main():
     finally:
         server.running = False
         httpd.shutdown()
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--port', type=int, default=8787)
+    ap.add_argument('--night', type=int, default=1, choices=(1, 2, 3))
+    ap.add_argument('--seed', type=int, default=1)
+    ap.add_argument('--host', default='127.0.0.1', help='use 0.0.0.0 inside Docker')
+    a = ap.parse_args()
+    serve(a.port, a.night, a.seed, a.host)
 
 
 if __name__ == '__main__':

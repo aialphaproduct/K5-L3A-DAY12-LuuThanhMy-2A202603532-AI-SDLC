@@ -1,5 +1,21 @@
 # Changelog
 
+## Phase 4 — "Bình minh: v1.0.0" (Ticket-04, Contract v1.3)
+- `python3 main.py --bench`: the standard 1280×720 scene (200 wander shades, 100 motes, L1–L3 lit, orbiting camera), with vsync off. It writes `bench.json` with avg/p1-low FPS, p95 frame time, load time and peak RSS.
+- `python3 main.py --soak`: N headless nights in one process with seeded random input. It writes `soak.json` (crashes, results, RSS at start and end).
+- Local top-10 leaderboard saved on disk. It has a menu screen, name entry after Bình Minh or a loss, and `--export-leaderboard`.
+- Accessibility:
+  - Rebind every action, with duplicate-key warning and restore defaults.
+  - Captions with an edge arrow for shade spawns, wind, the last 10 s and lantern oil.
+  - Reduced motion.
+  - UI text at least 18 px, plus a large-text option.
+- `python3 main.py` now opens the web 3D game. The Ursina client moved to `--native`.
+- Fixes:
+  - Night 3 start inside the bell tower.
+  - Camera sliding over Mây.
+  - HUD crash from a shadowed `cap` variable.
+- README rewrite, CREDITS, LICENSE (MIT), Dockerfile, retro, `docs/proof/phase-4.md`.
+
 ## Phase 3 — "Đèn cạn dầu" (Ticket-03, Contract v1.2)
 
 ### Breaking changes

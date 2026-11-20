@@ -2,3 +2,7 @@ __pycache__/
 *.pyc
 .env
 *.jsonl
+
+bench.json
+soak.json
+*.tmp
