@@ -1,8 +1,8 @@
 # Day 12 — AI SDLC: Đảo Đèn Lồng
 
-## Phase 2 prototype
+## Phase 3: keep the island lit until dawn
 
-This repository contains the Phase 2 three-night prototype and deterministic Contract v1.1 headless runner. Install and run in three commands:
+This repository contains the three-night game and a deterministic Contract v1.2 headless runner. Lanterns burn fuel; win by having at least 60 % of lanterns lit at dawn (see CHANGELOG.md and docs/adr). Install and run in three commands:
 
 ```bash
 python3 -m pip install -r requirements.txt
