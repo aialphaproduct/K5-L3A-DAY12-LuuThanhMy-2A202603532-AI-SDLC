@@ -4,6 +4,20 @@ A small 3D night game made for the Day 12 AI SDLC lab. Mây, the young lantern k
 
 ![Night 3 · Đảo Chuông](docs/screenshot.jpg)
 
+## Screenshots
+
+| Main menu | Night 1 introduction |
+|---|---|
+| <img src="docs/screenshots/main-menu.png" alt="Main menu" width="480"> | <img src="docs/screenshots/night-1-intro.png" alt="Night 1 introduction" width="480"> |
+
+| Night 1 gameplay | Night 2 result |
+|---|---|
+| <img src="docs/screenshots/night-1-gameplay.png" alt="Night 1 gameplay" width="480"> | <img src="docs/screenshots/night-2-result.png" alt="Night 2 result" width="480"> |
+
+| Leaderboard |
+|---|
+| <img src="docs/screenshots/leaderboard.png" alt="Leaderboard" width="480"> |
+
 ## Quick start (3 commands)
 
 ```bash
