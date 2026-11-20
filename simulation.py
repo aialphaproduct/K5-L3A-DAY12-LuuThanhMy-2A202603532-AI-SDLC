@@ -2,8 +2,10 @@ import json, math, random
 
 SPEED=6.; CAP=10; COST=10; PICKUP=1.; INTERACT=2.; PULSE_COST=3; PULSE_RADIUS=5.; INVULN=90; STUN=120; SHADE_SPEED=4.; HIT=1.; SAFE=6.; FALL_ENABLED=True
 SHADE_CAP={1:6,2:8,3:10}
+# Ticket-03 lantern fuel, kept in integer 1/60 units to avoid float drift (6000 = 100.0 fuel)
+FUEL_MAX_U=6000; LOW_FUEL_U=1800; DRAIN_U=5; FUEL_PER_MOTE_U=600; RELIGHT_COST=5; CAP_MAX=20; WIN_RATIO=0.6
 PADS={2:[((20,0,18),14.,24.,(70,0)),((50,0,-18),14.,24.,(0,0))],3:[((0,3,13),12.,8.,None)]}
-DURATIONS={1:300,2:330,3:360}; DASH_SPEED=14.; DASH_TICKS=12; DASH_CD=90
+DURATIONS={1:240,2:270,3:300}; DASH_SPEED=14.; DASH_TICKS=12; DASH_CD=90
 LANTERNS={1:[[0,0,25],[23.8,0,7.7],[14.7,0,-20.2],[-14.7,0,-20.2],[-23.8,0,7.7]],2:[[0,0,20],[17,0,-10],[-17,0,-10],[70,0,20],[87,0,-10],[53,0,-10]],3:[[0,6,6],[18,3,10],[-18,3,10],[35,0,-10],[-35,0,-10],[20,0,-35],[-20,0,-35]]}
 def dist(a,b): return math.hypot(a[0]-b[0],a[2]-b[2])
 def load_json(path,default):
@@ -12,7 +14,7 @@ def load_json(path,default):
 class Game:
     def __init__(self,seed=1,night=1,scenario=None):
         self.rng=random.Random(seed);self.seed=seed;self.night=night;self.tick=0;self.sim_tick=0;self.time=DURATIONS[night]*60;self.score=0;self.state='playing';self.flames=3;self.carried=0;self.player=[0.,0.,0.];self.invuln=0;self.dash_cd=0;self.pulse_cd=0;self.dash_left=0;self.pulse_push={};self.face=[0.,1.];self.vel=[0.,0.,0.];self.grounded=True;self.charm=0;self.pause=False;self.prev={x:False for x in ('jump','dash','pulse','interact','pause')};self.input={'move':[0,0],'cam_yaw_deg':0,'jump':False,'dash':False,'pulse':False,'interact':False,'pause':False};self.events=[];self.killscore=set();self.return_ticks=0;self.wind={'active':False,'dir_deg':0};self.wind_timer=0;self.launch=None;self.fall_wait=0;self.started=False
-        self.lanterns=[{'id':f'L{i+1}','pos':p,'lit':False,'deposited':0} for i,p in enumerate(LANTERNS[night])]
+        self.lanterns=[{'id':f'L{i+1}','pos':list(p),'lit':False,'deposited':0,'fu':0,'ever_lit':False,'relit_count':0} for i,p in enumerate(LANTERNS[night])];self.successful_lights=0
         self.spawn_points=self._mote_points();self.shade_points=self._shade_points();self.motes=[self._mote(f'M{i+1}',p) for i,p in enumerate(self.spawn_points[:20])];self.shades=[];self.drifters=[]
         charm_positions={1:[],2:[[35,0,0]],3:[[30,0,25],[-30,0,25]]}[night];self.charms=[{'id':f'C{i+1}','pos':p,'available':True,'respawn':0} for i,p in enumerate(charm_positions)]
         self.random_motes=True;self.random_shades=True;self.random_drifters=True;self.wind_enabled=night==3;self.shade_spawn=300;self.drifter_spawn=1200
@@ -27,15 +29,18 @@ class Game:
         return [[r*math.cos(math.radians(a)),0,r*math.sin(math.radians(a))] for a in angles]
     def _mote(self,id,pos,kind='random',ttl=0):return {'id':id,'pos':list(pos),'kind':kind,'ttl':ttl}
     def _scenario(self,sc):
-        p=sc.get('player',{});self.player=list(map(float,p.get('pos',[0,0,0])));self.carried=int(p.get('carried',0));self.flames=int(p.get('flames',3));self.invuln=int(p.get('invuln_ticks',0));self.dash_cd=int(p.get('dash_cd_ticks',0));self.pulse_cd=int(p.get('pulse_cd_ticks',0));self.charm=int(p.get('charm_ticks',0))
+        p=sc.get('player',{});self.player=list(map(float,p.get('pos',[0,0,0])));self.carried=int(p.get('carried',0));self.flames=int(p.get('flames',3));self.invuln=int(p.get('invuln_ticks',0));self.dash_cd=int(p.get('dash_cd_ticks',0));self.pulse_cd=int(p.get('pulse_cd_ticks',0));self.charm=int(p.get('charm_ticks',0));self.successful_lights=int(p.get('successful_lights',0))
         self.random_motes=sc.get('random_motes',True);self.random_shades=sc.get('random_shades',True);self.random_drifters=sc.get('random_drifters',True);self.wind_enabled=sc.get('wind_enabled',self.wind_enabled)
         if 'motes' in sc:self.motes=[self._mote(f'M{i+1}',x) for i,x in enumerate(sc['motes'])]
-        if 'shades' in sc:self.shades=[{'id':x.get('id',f'S{i+1}'),'pos':list(map(float,x['pos'])),'state':x.get('state','wander'),'state_ticks':x.get('state_ticks_left',0),'recoil':[0,0,0]} for i,x in enumerate(sc['shades'])]
+        if 'shades' in sc:self.shades=[{'id':x.get('id',f'S{i+1}'),'pos':list(map(float,x['pos'])),'state':x.get('state','wander'),'state_ticks':x.get('state_ticks_left',0),'recoil':[0,0,0],'target':x.get('target_lantern_id'),'drain_t':0} for i,x in enumerate(sc['shades'])]
         if 'drifters' in sc:self.drifters=[{'id':x.get('id',f'D{i+1}'),'pos':list(map(float,x['pos'])),'state':x.get('state','idle'),'stolen':x.get('stolen',0),'ticks':0} for i,x in enumerate(sc['drifters'])]
         if 'charms' in sc:self.charms=[{'id':x.get('id',f'C{i+1}'),'pos':list(map(float,x.get('pos',[0,0,0]))),'available':x.get('available',True),'respawn':x.get('respawn_ticks',0)} for i,x in enumerate(sc['charms'])]
         for x in sc.get('lanterns',[]):
             l=next((a for a in self.lanterns if a['id']==x.get('id')),None)
-            if l:l['pos']=x.get('pos',l['pos']);l['lit']=x.get('lit',False);l['deposited']=x.get('deposited',COST if l['lit'] else 0)
+            if l:
+                l['pos']=list(x.get('pos',l['pos']));l['lit']=bool(x.get('lit',False));l['deposited']=x.get('deposited',COST if l['lit'] else 0)
+                l['fu']=int(round(float(x.get('fuel',100 if l['lit'] else 0))*60)) if l['lit'] else 0
+                l['ever_lit']=bool(x.get('ever_lit',l['lit']))
         self.time=int(sc.get('time_left_s',DURATIONS[self.night])*60)
     def event(self,name,data):self.events.append({'type':'event','tick':self.tick,'name':name,'data':data})
     def spawn_shades(self,count):
@@ -52,8 +57,9 @@ class Game:
         self.invuln=max(0,self.invuln-1);self.dash_cd=max(0,self.dash_cd-1);self.pulse_cd=max(0,self.pulse_cd-1);self.charm=max(0,self.charm-1)
         for s in self.shades:
             if s['state_ticks']>0:s['state_ticks']-=1
-            if s['state']=='stunned' and s['state_ticks']==0:s['state']='chase'
+            if s['state']=='stunned' and s['state_ticks']==0:s['state']='wander'
             if s['state']=='spawning' and s['state_ticks']==0:s['state']='wander'
+        self._fuel_tick()
         for m in self.motes[:]:
             if m['ttl']>0:m['ttl']-=1
             if m['ttl']==0 and m['kind']=='dropped':self.motes.remove(m)
@@ -71,6 +77,22 @@ class Game:
             self._world_only();return
         self._pickup();self._interact();self._safe_zones();self._pulse();self._pulse_push();self._move_enemies();self._collisions();self._spawns();self._win_check()
         for name in ('jump','dash','pulse','interact'): self.prev[name]=self.input.get(name,False)
+    def _lantern(self,lid):return next((l for l in self.lanterns if l['id']==lid),None)
+    def capacity(self):return min(CAP_MAX,CAP+2*self.successful_lights)
+    def _fuel_tick(self):
+        drain={}
+        for s in self.shades:
+            if s['state']=='drain' and s.get('target'):drain[s['target']]=drain.get(s['target'],0)+DRAIN_U
+        for l in self.lanterns:
+            if not l['lit']:continue
+            l['fu']-=1+drain.get(l['id'],0)
+            if l['fu']<=0:l['fu']=0;l['lit']=False;l['deposited']=0;self.event('lantern_out',{'lantern_id':l['id']})
+        for s in sorted(self.shades,key=lambda a:int(a['id'][1:])):
+            if s['state']!='drain':continue
+            l=self._lantern(s.get('target'))
+            if not l or not l['lit']:continue
+            s['drain_t']=s.get('drain_t',0)+1
+            if s['drain_t']%60==0:self.event('fuel_drain',{'lantern_id':l['id'],'shade_id':s['id'],'fuel':round(l['fu']/60,1)})
     def _world_only(self):
         self._safe_zones();self._pulse_push();self._move_enemies();self._spawns();self._win_check()
         for name in ('jump','dash','pulse','interact'): self.prev[name]=self.input.get(name,False)
@@ -125,31 +147,45 @@ class Game:
     def _pressed(self,key):return self.input.get(key,False) and not self.prev[key]
     def _pickup(self):
         for m in self.motes[:]:
-            if self.carried<CAP and dist(m['pos'],self.player)<=PICKUP and abs(m['pos'][1]-self.player[1])<=1.5:
+            if self.carried<self.capacity() and dist(m['pos'],self.player)<=PICKUP and abs(m['pos'][1]-self.player[1])<=1.5:
                 self.motes.remove(m);self.carried+=1;self.event('mote_picked',{'carried':self.carried})
         for c in self.charms:
             if c['available'] and dist(c['pos'],self.player)<=PICKUP and abs(c['pos'][1]-self.player[1])<=1.5:c['available']=False;c['respawn']=2700;self.charm=600;self.event('charm_picked',{'charm_id':c['id'],'charm_ticks':600})
     def _interact(self):
         if not self._pressed('interact') or not self.carried:return
-        choices=sorted((dist(l['pos'],self.player),l['id'],l) for l in self.lanterns if not l['lit'] and dist(l['pos'],self.player)<=INTERACT)
-        if choices:
-            l=choices[0][2];n=min(self.carried,COST-l['deposited']);self.carried-=n;l['deposited']+=n;self.score+=n*10
-            self.event('deposit',{'lantern_id':l['id'],'amount':n,'deposited':l['deposited']})
-            if l['deposited']>=COST:l['lit']=True;self.score+=100;self.event('lantern_lit',{'lantern_id':l['id']})
+        # candidates: unlit lanterns, or lit ones that are not full; nearest first, then lower id
+        cands=[(dist(l['pos'],self.player),int(l['id'][1:]),l) for l in self.lanterns
+               if dist(l['pos'],self.player)<=INTERACT and (not l['lit'] or l['fu']<FUEL_MAX_U)]
+        if not cands:return
+        l=min(cands,key=lambda c:(c[0],c[1]))[2]
+        if l['lit']:
+            used=min(self.carried,-(-(FUEL_MAX_U-l['fu'])//FUEL_PER_MOTE_U))
+            if used<=0:return
+            self.carried-=used;l['fu']=min(FUEL_MAX_U,l['fu']+FUEL_PER_MOTE_U*used);self.score+=5*used
+            self.event('refuel',{'lantern_id':l['id'],'amount':used,'fuel':round(l['fu']/60,1)})
+            return
+        cost=RELIGHT_COST if l['ever_lit'] else COST
+        n=min(self.carried,cost-l['deposited']);self.carried-=n;l['deposited']+=n;self.score+=5*n
+        self.event('deposit',{'lantern_id':l['id'],'amount':n,'deposited':l['deposited']})
+        if l['deposited']>=cost:
+            relight=l['ever_lit'];l['lit']=True;l['fu']=FUEL_MAX_U;l['ever_lit']=True;self.successful_lights+=1
+            if relight:l['relit_count']+=1;self.score+=40
+            else:self.score+=100
+            self.event('lantern_lit',{'lantern_id':l['id'],'relight':relight})
     def _safe_zones(self):
         for s in self.shades:
             if s['state'] in ('stunned','spawning'):continue
             for l in self.lanterns:
                 d=dist(s['pos'],l['pos'])
-                if l['lit'] and d<SAFE:
+                if l['lit'] and l['fu']>=LOW_FUEL_U and d<SAFE:
                     dx=s['pos'][0]-l['pos'][0];dz=s['pos'][2]-l['pos'][2];d=d or 1;s['pos'][0]=l['pos'][0]+dx/d*SAFE;s['pos'][2]=l['pos'][2]+dz/d*SAFE
     def _pulse(self):
         if self._pressed('pulse') and self.carried>=3 and self.pulse_cd==0:
             self.carried-=3;self.pulse_cd=180;ids=[]
             for s in sorted(self.shades,key=lambda a:a['id']):
                 if math.dist(self.player,[s['pos'][0],s['pos'][1]-.8,s['pos'][2]])<=PULSE_RADIUS:
-                    s['state']='stunned';s['state_ticks']=STUN;ids.append(s['id'])
-                    self.score+=5
+                    self.score+=15 if s['state']=='drain' else 5
+                    s['state']='stunned';s['state_ticks']=STUN;s['drain_t']=0;ids.append(s['id'])
                     dx=s['pos'][0]-self.player[0];dz=s['pos'][2]-self.player[2];d=math.hypot(dx,dz)
                     if d<1e-9:dx,dz,d=1.,0.,1.
                     self.pulse_push[s['id']]=[dx/d*4/15,dz/d*4/15,15]
@@ -165,14 +201,34 @@ class Game:
     def _move_enemies(self):
         for s in self.shades:
             if s['state'] in ('stunned','spawning'):continue
-            dx=self.player[0]-s['pos'][0];dz=self.player[2]-s['pos'][2];d=math.hypot(dx,dz);speed=4.5 if self.night==3 else SHADE_SPEED
+            speed=4.5 if self.night==3 else SHADE_SPEED
+            dx=self.player[0]-s['pos'][0];dz=self.player[2]-s['pos'][2];d=math.hypot(dx,dz)
             if s['state']=='recoil':
                 s['pos'][0]+=s['recoil'][0]/60;s['pos'][2]+=s['recoil'][2]/60;s['state_ticks']-=1
                 if s['state_ticks']<=0:s['state']='chase'
-            elif d<=12 or (s['state']=='chase' and d<=18):
-                s['state']='chase'
+                continue
+            if s['state']=='drain':
+                l=self._lantern(s.get('target'))
+                if d<=6:s['state']='chase'
+                elif not l or not l['lit'] or l['fu']>=LOW_FUEL_U or dist(s['pos'],l['pos'])>2:s['state']='wander';s['drain_t']=0;continue
+                else:continue  # standing still, draining
+            if s['state']=='chase' and d>18:s['state']='wander'
+            if s['state']=='wander' and d<=12:s['state']='chase'
+            if s['state']=='chase':
                 if d:s['pos'][0]+=dx/d*speed/60;s['pos'][2]+=dz/d*speed/60
-            else:s['state']='wander'
+                continue
+            # wander: go to the nearest weak lit lantern (fuel < 30), else the nearest unlit lantern
+            weak=[(dist(s['pos'],l['pos']),int(l['id'][1:]),l) for l in self.lanterns if l['lit'] and l['fu']<LOW_FUEL_U]
+            if weak:
+                td,_,tl=min(weak,key=lambda c:(c[0],c[1]));s['target']=tl['id']
+                if td<=2:s['state']='drain';s['drain_t']=0;continue
+            else:
+                dark=[(dist(s['pos'],l['pos']),int(l['id'][1:]),l) for l in self.lanterns if not l['lit']]
+                if not dark:continue
+                td,_,tl=min(dark,key=lambda c:(c[0],c[1]))
+                if td<=2:continue
+            tx=tl['pos'][0]-s['pos'][0];tz=tl['pos'][2]-s['pos'][2];n=math.hypot(tx,tz)
+            if n:step=min(speed/60,n);s['pos'][0]+=tx/n*step;s['pos'][2]+=tz/n*step
         for d in self.drifters:
             if d['state']=='removed':d['ticks']-=1;continue
             near=dist(d['pos'],self.player)
@@ -215,15 +271,17 @@ class Game:
         return self.rng.choice(candidates) if candidates else [0,0,0]
     def _win_check(self):
         if self.flames<=0:self.finish('lost','no_flames')
-        elif all(l['lit'] for l in self.lanterns):self.finish('won','all_lit')
-        elif self.time<=0:self.finish('lost','dawn')
+        elif self.time<=0:
+            lit=sum(1 for l in self.lanterns if l['lit'])
+            if lit>=math.ceil(WIN_RATIO*len(self.lanterns)):self.finish('won','dawn_survived')
+            else:self.finish('lost','dawn')
     def finish(self,state,reason):
         if self.state!='playing':return
         self.state=state
-        if state=='won':self.score+=max(0,self.time//60)*2+50*self.flames
+        if state=='won':self.score+=sum(50+l['fu']//60 for l in self.lanterns if l['lit'])+50*self.flames
         self.event('game_over',{'result':state,'reason':reason})
     def snapshot(self):
-        return {'type':'snapshot','tick':self.tick,'sim_tick':self.sim_tick,'night':self.night,'state':self.state,'time_left_s':round(self.time/60,3),'score':self.score,'wind':self.wind,'player':{'pos':[round(v,3) for v in self.player],'vel':[round(v,3) for v in self.vel],'grounded':self.grounded,'flames':self.flames,'carried':self.carried,'invuln':self.invuln/60,'dash_cd_s':self.dash_cd/60,'pulse_cd_s':self.pulse_cd/60,'charm_s':self.charm/60},'lanterns':[{'id':l['id'],'pos':l['pos'],'lit':l['lit'],'deposited':l['deposited']} for l in self.lanterns],'shades':[{'id':s['id'],'pos':[round(v,3) for v in s['pos']],'state':s['state']} for s in self.shades],'motes':[{'id':m['id'],'pos':[round(v,3) for v in m['pos']],'kind':m['kind'],'ttl_s':round(m['ttl']/60,3)} for m in self.motes],'motes_active':len(self.motes),'drifters':[{'id':d['id'],'pos':[round(v,3) for v in d['pos']],'state':d['state'],'stolen':d['stolen']} for d in self.drifters if d['state']!='removed'],'charms':[{'id':c['id'],'available':c['available'],'respawn_s':c['respawn']/60} for c in self.charms]}
+        return {'type':'snapshot','tick':self.tick,'sim_tick':self.sim_tick,'night':self.night,'state':self.state,'time_left_s':round(self.time/60,3),'score':self.score,'wind':self.wind,'player':{'pos':[round(v,3) for v in self.player],'vel':[round(v,3) for v in self.vel],'grounded':self.grounded,'flames':self.flames,'carried':self.carried,'invuln':self.invuln/60,'dash_cd_s':self.dash_cd/60,'pulse_cd_s':self.pulse_cd/60,'charm_s':self.charm/60,'capacity':self.capacity()},'lanterns':[{'id':l['id'],'pos':l['pos'],'lit':l['lit'],'deposited':l['deposited'],'fuel':round(l['fu']/60,1) if l['lit'] else 0,'ever_lit':l['ever_lit'],'relit_count':l['relit_count']} for l in self.lanterns],'shades':[{'id':s['id'],'pos':[round(v,3) for v in s['pos']],'state':s['state']} for s in self.shades],'motes':[{'id':m['id'],'pos':[round(v,3) for v in m['pos']],'kind':m['kind'],'ttl_s':round(m['ttl']/60,3)} for m in self.motes],'motes_active':len(self.motes),'drifters':[{'id':d['id'],'pos':[round(v,3) for v in d['pos']],'state':d['state'],'stolen':d['stolen']} for d in self.drifters if d['state']!='removed'],'charms':[{'id':c['id'],'available':c['available'],'respawn_s':c['respawn']/60} for c in self.charms]}
 def run_headless(seed,ticks,every,scenario_path=None,inputs_path=None,night=1):
     sc=load_json(scenario_path,{})
     if not isinstance(sc,dict):raise ValueError('scenario must be an object')

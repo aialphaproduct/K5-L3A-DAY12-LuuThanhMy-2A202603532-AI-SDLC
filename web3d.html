@@ -18,6 +18,9 @@ canvas{display:block}
 .flame.off{opacity:.18;filter:grayscale(1)}
 #timer{position:absolute;top:14px;left:50%;transform:translateX(-50%);font-weight:800;font-size:28px;letter-spacing:2px;min-width:110px;text-align:center}
 #timer.low{color:var(--danger);animation:blink .8s steps(2) infinite}
+body.cb{--danger:#FFFFFF}
+body.cb #timer.low::before{content:'⚠ '}
+#bar{flex-wrap:wrap;max-width:min(92vw,560px);justify-content:center}
 @keyframes blink{50%{opacity:.35}}
 #right{position:absolute;top:16px;right:16px;text-align:right;line-height:1.5}
 #right b{color:var(--gold)}
@@ -64,7 +67,7 @@ input[type=range]{width:200px}
   <svg id="arrow" viewBox="0 0 44 44"><path d="M22 4 L38 34 L22 26 L6 34 Z" fill="#FFB347" stroke="#FFE9B0" stroke-width="2"/></svg>
   <div id="bar" class="pill"></div>
   <div id="cds"><div class="cd" id="cdDash"><i></i><span>Lướt<br>Shift</span></div><div class="cd" id="cdPulse"><i></i><span>Tỏa sáng<br>F</span></div></div>
-  <div id="help" class="pill">WASD/↑↓←→ di chuyển · Space nhảy · Shift lướt · E nạp đèn · F tỏa sáng · Kéo chuột / Z X xoay camera · Esc tạm dừng</div>
+  <div id="help" class="pill">Giữ đủ đèn sáng tới bình minh · WASD/↑↓←→ di chuyển · Space nhảy · Shift lướt · E nạp đèn · F tỏa sáng · Kéo chuột / Z X xoay camera · Esc tạm dừng</div>
 </div>
 <div id="flash"></div>
 
@@ -100,6 +103,7 @@ input[type=range]{width:200px}
   <h2>Cài đặt</h2>
   <label>Âm lượng <input type="range" id="sVol" min="0" max="1" step="0.05"></label>
   <label>Độ nhạy chuột <input type="range" id="sSens" min="0.1" max="2" step="0.05"></label>
+  <label>Bảng màu dễ phân biệt <input type="checkbox" id="sCb"></label>
   <div class="btns"><button id="sBack">Xong</button></div>
 </div></div>
 
@@ -124,7 +128,7 @@ const NIGHTS = {
 };
 const api = (p, body) => fetch(p, body ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)} : undefined);
 const $ = id => document.getElementById(id);
-const settings = (() => { try { return Object.assign({vol:.6, sens:1}, JSON.parse(localStorage.getItem('ddl-settings')||'{}')); } catch { return {vol:.6, sens:1}; } })();
+const settings = (() => { try { return Object.assign({vol:.6, sens:1, cb:false}, JSON.parse(localStorage.getItem('ddl-settings')||'{}')); } catch { return {vol:.6, sens:1}; } })();
 const saveSettings = () => { try { localStorage.setItem('ddl-settings', JSON.stringify(settings)); } catch {} };
 
 // ---------- renderer / scene ----------
@@ -245,8 +249,15 @@ function makeLantern(){
   const halo = glow(C.lampOn, 5); halo.position.set(0.8, 2.35, 0); halo.visible = false;
   const ring = new THREE.Mesh(new THREE.RingGeometry(5.8, 6, 64), new THREE.MeshBasicMaterial({color:C.lampOn, transparent:true, opacity:.25, side:THREE.DoubleSide}));
   ring.rotation.x = -Math.PI/2; ring.position.y = 0.05; ring.visible = false;
-  g.add(post, arm, paper, capT, capB, light, halo, ring);
-  Object.assign(g.userData, {paper, light, halo, ring});
+  const tear = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.3, 0.05), new THREE.MeshBasicMaterial({color:0x14161f}));
+  tear.position.set(0.8, 2.3, 0.41); tear.rotation.z = 0.5; // ripped paper on unlit lanterns (readable without colour)
+  const bar = new THREE.Group(); bar.position.set(0.8, 3.45, 0);
+  const barBg = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.16), new THREE.MeshBasicMaterial({color:0x0E1430, transparent:true, opacity:.8, depthTest:false}));
+  const barFill = new THREE.Mesh(new THREE.PlaneGeometry(1.36, 0.11), new THREE.MeshBasicMaterial({color:C.lampOn, depthTest:false}));
+  barFill.geometry.translate(0.68, 0, 0); barFill.position.x = -0.68; barFill.position.z = 0.001;
+  bar.add(barBg, barFill); bar.renderOrder = 10;
+  g.add(post, arm, paper, capT, capB, light, halo, ring, tear, bar);
+  Object.assign(g.userData, {paper, light, halo, ring, tear, bar, barFill});
   return g;
 }
 function makeShade(){
@@ -368,6 +379,9 @@ $('pSettings').onclick = () => { settingsFrom = 'pause'; show('settings'); };
 $('sVol').value = settings.vol; $('sSens').value = settings.sens;
 $('sVol').oninput = e => { settings.vol = +e.target.value; if (master) master.gain.value = settings.vol; saveSettings(); };
 $('sSens').oninput = e => { settings.sens = +e.target.value; saveSettings(); };
+$('sCb').checked = !!settings.cb; document.body.classList.toggle('cb', !!settings.cb);
+$('sCb').onchange = e => { settings.cb = e.target.checked; document.body.classList.toggle('cb', settings.cb); saveSettings(); };
+const rimColor = () => settings.cb ? 0x00B3FF : C.shadeRim;
 $('sBack').onclick = () => show(settingsFrom);
 $('resNext').onclick = () => { if (night < 3) openIntro(night + 1); else { screenMode = 'menu'; show('menu'); } };
 $('resRetry').onclick = () => openIntro(night);
@@ -376,7 +390,7 @@ $('resMenu').onclick = () => { screenMode = 'menu'; show('menu'); };
 // ---------- HUD ----------
 const flameSvg = '<svg class="flame" viewBox="0 0 26 34"><path d="M13 2C16 9 23 13 23 22a10 10 0 0 1-20 0c0-6 4-8 5-13 2 3 2 6 5 7 1-5-2-9 0-14z" fill="#FFB347"/><path d="M13 16c2 3 5 5 5 9a5 5 0 0 1-10 0c0-3 3-5 5-9z" fill="#FFE9B0"/></svg>';
 $('bar').innerHTML = Array.from({length:10}, () => '<div class="slot"></div>').join('');
-const slots = [...$('bar').children];
+let slots = [...$('bar').children];
 const fmt = s => { s = Math.max(0, Math.ceil(s)); return String(Math.floor(s/60)).padStart(2,'0') + ':' + String(s%60).padStart(2,'0'); };
 const cdStyle = (el, frac) => { el.querySelector('i').style.background = frac > 0 ? `conic-gradient(rgba(14,20,48,.85) ${frac*360}deg, rgba(255,179,71,.35) 0)` : 'rgba(255,179,71,.35)'; };
 
@@ -413,15 +427,21 @@ function onState(){
   $('timer').textContent = fmt(s.time_left_s); $('timer').classList.toggle('low', s.time_left_s <= 30);
   const lit = s.lanterns.filter(l => l.lit).length; $('lit').textContent = `${lit}/${s.lanterns.length}`; $('score').textContent = s.score;
   $('night').textContent = `Đêm ${s.night} · ${NIGHTS[s.night].name}`;
+  const cap = p.capacity || 10;
+  if (slots.length !== cap){ $('bar').innerHTML = Array.from({length:cap}, () => '<div class="slot"></div>').join(''); slots = [...$('bar').children]; }
   slots.forEach((el, i) => el.classList.toggle('on', i < p.carried));
   cdStyle($('cdDash'), Math.min(1, p.dash_cd_s / 1.5)); cdStyle($('cdPulse'), Math.min(1, p.pulse_cd_s / 3));
   $('banner').style.display = s.wind && s.wind.active ? 'block' : 'none';
-  // interact prompt: nearest unlit lantern within 2 m
-  let near = null, nd = 1e9;
-  for (const l of s.lanterns){ if (l.lit) continue; const d = Math.hypot(l.pos[0]-p.pos[0], l.pos[2]-p.pos[2]); if (d < nd){ nd = d; near = l; } }
-  $('prompt').style.display = near && nd <= 2 && screenMode === 'play' ? 'block' : 'none';
-  if (near) $('promptText').textContent = `Nạp ánh sáng (${near.deposited}/10)`;
-  arrowTarget = near;
+  // interact prompt: nearest lantern that can receive (unlit, or lit but not full)
+  let near = null, nd = 1e9, need = null, nn = 1e9;
+  for (const l of s.lanterns){
+    const d = Math.hypot(l.pos[0]-p.pos[0], l.pos[2]-p.pos[2]);
+    if ((!l.lit || l.fuel < 100) && d < nd){ nd = d; near = l; }
+    if ((!l.lit || l.fuel < 30) && d < nn){ nn = d; need = l; }
+  }
+  $('prompt').style.display = near && nd <= 2 && p.carried > 0 && screenMode === 'play' ? 'block' : 'none';
+  if (near) $('promptText').textContent = near.lit ? `Châm dầu (${Math.floor(near.fuel)}/100)` : `Nạp ánh sáng (${near.deposited}/${near.ever_lit ? 5 : 10})`;
+  arrowTarget = need;
   // ambient light rises with progress
   const k = 0.15 + 0.55 * (lit / s.lanterns.length);
   hemi.intensity = 0.6 + k * 1.6; moon.intensity = 0.5 + k * 1.0;
@@ -432,7 +452,8 @@ function showResult(s){
   const won = s.state === 'won';
   if (won){ total += s.score; try { sessionStorage.setItem('ddl-total', total); } catch {} sfx.win(); } else sfx.lose();
   $('resTitle').textContent = won ? (night === 3 ? '☀ Bình Minh ☀' : 'Đảo đã sáng!') : 'Sương đen đã thắng…';
-  $('resText').innerHTML = won ? `Điểm Đêm ${night}: <b>${s.score}</b><br>Tổng điểm: <b>${total}</b>` : `Điểm Đêm ${night}: <b>${s.score}</b>. Thử lại nhé, Mây!`;
+  const need = Math.ceil(0.6 * s.lanterns.length);
+  $('resText').innerHTML = won ? `Điểm Đêm ${night}: <b>${s.score}</b><br>Tổng điểm: <b>${total}</b>` : `Bình minh cần ít nhất ${need} đèn đang sáng. Điểm Đêm ${night}: <b>${s.score}</b>. Thử lại nhé, Mây!`;
   $('resNext').style.display = won ? '' : 'none';
   $('resNext').textContent = night < 3 ? 'Đêm kế tiếp' : 'Về menu';
   setTimeout(() => show('result'), 900);
@@ -459,13 +480,19 @@ function frame(){
       u.paper.material.emissiveIntensity = d.lit ? 1.6 + Math.sin(t*3)*0.2 : 0;
       u.light.intensity = d.lit ? 40 + Math.sin(t*4)*4 : (d.deposited ? d.deposited*1.2 : 0); u.halo.visible = d.lit || d.deposited > 0;
       u.halo.material.opacity = d.lit ? 1 : d.deposited/14; u.ring.visible = d.lit; u.ring.material.opacity = .18 + Math.sin(t*2)*.06;
-      u.paper.scale.y = d.lit ? 1 : 0.8; // unlit lanterns sag slightly: readable without colour
+      u.paper.scale.y = d.lit ? 1 : 0.8; // unlit lanterns sag 20%: readable without colour
+      u.tear.visible = !d.lit;
+      const fuel = d.fuel || 0, low = d.lit && fuel < 30, blinkOff = low && (Math.floor(t*2) % 2 === 1); // 1 Hz slow blink
+      u.bar.visible = d.lit && !blinkOff; u.bar.quaternion.copy(camera.quaternion);
+      u.barFill.scale.x = Math.max(0.001, fuel/100); u.barFill.material.color.set(low ? (settings.cb ? 0xFFFFFF : 0xFF5A5F) : C.lampOn);
+      if (blinkOff){ u.light.intensity *= 0.25; u.paper.material.emissiveIntensity *= 0.3; }
+      u.ring.visible = d.lit && fuel >= 30; // safe zone lost below 30 fuel
     }
     for (const o of pools.shade.values()){
       const d = o.userData.data, u = o.userData; lerpTo(o, d.pos[0], (d.pos[1] || 0) + 1.1 + Math.sin(t*2 + u.phase)*0.15, d.pos[2], k);
       const stun = d.state === 'stunned', spawn = d.state === 'spawning';
-      u.bodyMat.color.set(stun ? C.shadeStun : C.shade); u.eyeM.color.set(stun ? 0x9a94b0 : C.shadeRim);
-      u.rim.material.opacity = spawn ? .12 + Math.sin(t*10)*.08 : (d.state === 'chase' ? .45 : .28);
+      u.bodyMat.color.set(stun ? C.shadeStun : C.shade); u.eyeM.color.set(stun ? 0x9a94b0 : rimColor()); u.rim.material.color.set(rimColor());
+      u.rim.material.opacity = spawn ? .12 + Math.sin(t*10)*.08 : (d.state === 'chase' || d.state === 'drain' ? .5 : .28);
       o.scale.setScalar(spawn ? 0.6 + 0.4*Math.abs(Math.sin(t*3)) : 1);
       o.lookAt(player.position.x, o.position.y, player.position.z);
       u.tails.forEach((tl, i) => tl.rotation.z = Math.sin(t*5 + i)*0.3);

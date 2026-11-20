@@ -45,7 +45,8 @@ class Phase2Features(unittest.TestCase):
         rows = run(1, sc, [{'tick': 2, 'interact': True}], 4)
         self.assertEqual(snap(rows, 1)['score'], 0)  # picked up, not scored yet
         self.assertEqual(events(rows, 'deposit')[0]['data']['amount'], 1)
-        self.assertEqual(snap(rows, 4)['score'], 10)
+        # Ticket-03 replaced the per-mote deposit score: +10 (Ticket-02) -> +5. Still scored on deposit only.
+        self.assertEqual(snap(rows, 4)['score'], 5)
 
     def test_night3_shade_speed_is_4_5(self):
         sc = dict(QUIET, player={'pos': [0, 0, -40]}, shades=[{'id': 'S1', 'pos': [10, 0, -40], 'state': 'chase'}])
