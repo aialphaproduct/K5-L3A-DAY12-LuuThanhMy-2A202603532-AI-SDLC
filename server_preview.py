@@ -11,6 +11,7 @@ Then open http://localhost:8787/ in a browser.
 """
 import argparse
 import json
+import re
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -84,6 +85,13 @@ def make_handler(server: GameServer):
             if path in PAGES:
                 body = (ROOT / PAGES[path]).read_bytes()
                 self._send(200, body, 'text/html; charset=utf-8')
+            elif path.startswith('/assets/'):
+                name = path[len('/assets/'):]
+                f = ROOT / 'assets' / name
+                if re.fullmatch(r'[A-Za-z0-9_.-]+\.(png|jpg|webp)', name) and f.is_file():
+                    self._send(200, f.read_bytes(), 'image/' + ('jpeg' if name.endswith('jpg') else name.rsplit('.', 1)[1]))
+                else:
+                    self._send(404, b'{"error":"not found"}')
             elif path == '/api/state':
                 body = json.dumps(server.snapshot()).encode('utf-8')
                 self._send(200, body)

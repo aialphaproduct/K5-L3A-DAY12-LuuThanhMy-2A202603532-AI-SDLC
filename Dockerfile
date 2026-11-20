@@ -2,5 +2,6 @@
 FROM python:3.12-slim
 WORKDIR /app
 COPY *.py *.html game.contract.json ./
+COPY assets ./assets
 EXPOSE 8787
 CMD ["python", "server_preview.py", "--host", "0.0.0.0", "--port", "8787"]
