@@ -31,7 +31,7 @@
   </div>
 </div>
 <div class="title" id="title"><span id="titleText"></span><small>Nhan R de choi lai</small></div>
-<div class="controls">W A S D di chuyen &middot; E thap den &middot; SPACE toa sang &middot; R choi lai</div>
+<div class="controls">W A S D / &uarr;&larr;&darr;&rarr; di chuyen &middot; E thap den &middot; SPACE toa sang &middot; R choi lai</div>
 <div class="warn" id="warn">Mat ket noi server. Dang thu lai...</div>
 <script>
 const c = document.querySelector('#c'), x = c.getContext('2d');
@@ -47,6 +47,8 @@ function toScreen(px, pz){
 
 let state = null, lost = false;
 const keys = {w:0,a:0,s:0,d:0,e:0,space:0};
+// Arrow keys mirror WASD: Up=w, Left=a, Down=s, Right=d.
+const ARROW_MAP = {arrowup:'w', arrowleft:'a', arrowdown:'s', arrowright:'d'};
 
 function sendInput(){
   const x_ = keys.d - keys.a, z_ = keys.w - keys.s;
@@ -54,15 +56,19 @@ function sendInput(){
     body: JSON.stringify({x:x_, z:z_, interact:!!keys.e, pulse:!!keys.space})}).catch(()=>{});
 }
 addEventListener('keydown', e=>{
-  const k = e.key.toLowerCase();
+  const raw = e.key.toLowerCase();
+  const k = ARROW_MAP[raw] || raw;
+  if (k in keys || raw===' ' || raw in ARROW_MAP) e.preventDefault(); // stop page scroll
   if (k in keys){ keys[k]=1; sendInput(); }
-  if (k===' '){ keys.space=1; sendInput(); }
-  if (k==='r' && lost){ fetch('/api/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).catch(()=>{}); }
+  if (raw===' '){ keys.space=1; sendInput(); }
+  if (raw==='r' && lost){ fetch('/api/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).catch(()=>{}); }
 });
 addEventListener('keyup', e=>{
-  const k = e.key.toLowerCase();
+  const raw = e.key.toLowerCase();
+  const k = ARROW_MAP[raw] || raw;
+  if (k in keys || raw===' ' || raw in ARROW_MAP) e.preventDefault();
   if (k in keys){ keys[k]=0; sendInput(); }
-  if (k===' '){ keys.space=0; sendInput(); }
+  if (raw===' '){ keys.space=0; sendInput(); }
 });
 
 async function poll(){
