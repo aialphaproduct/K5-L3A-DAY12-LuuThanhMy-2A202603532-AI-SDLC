@@ -49,6 +49,8 @@ Keep the island lit until dawn. At dawn you win if at least 60 % of the lanterns
 
 Every action can be rebound in **Settings → Phím**. The game warns you about duplicate keys, and "Khôi phục mặc định" restores the defaults.
 
+Choose **Demo tự động** on the main menu for a looping showcase of all three nights. The bot plays for about 27 seconds, then shows a real dawn victory for 3 seconds before moving to the next night. Press **Esc** or **Thoát demo** to return to the menu.
+
 **Accessibility settings** are saved in the browser and include:
 - Volume and mouse sensitivity.
 - A colour-blind palette (cyan shade eyes, white ⚠ warnings).
@@ -71,7 +73,7 @@ The game total is the sum of the nights you won. After Bình Minh (winning Night
 ## Tests, headless, bench, soak
 
 ```bash
-python3 -m unittest discover -s tests          # 45 tests, Contract v1.0-v1.3
+python3 -m unittest discover -s tests          # 47 tests, Contract v1.0-v1.3 plus demo
 python3 main.py --headless --seed 1 --night 1 --ticks 600 --out run.jsonl
 python3 main.py --bench --seed 42 --duration 30 --out bench.json
 python3 main.py --soak --seed 7 --nights 10 --out soak.json

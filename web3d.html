@@ -53,6 +53,8 @@ table{border-collapse:collapse;margin:12px auto;font-size:18px;color:var(--cream
 body.cb{--danger:#FFFFFF}
 body.cb #timer.low::before{content:'⚠ '}
 @keyframes blink{50%{opacity:.35}}
+#demoBadge{position:absolute;top:108px;left:50%;transform:translateX(-50%);display:none;align-items:center;gap:12px;white-space:nowrap;color:var(--gold);font-weight:700}
+.demo-stop{pointer-events:auto;padding:3px 10px;font-size:15px}
 #right{position:absolute;top:16px;right:16px;text-align:right;line-height:1.5}
 #right b{color:var(--gold)}
 #night{position:absolute;top:70px;left:50%;transform:translateX(-50%);font:italic 500 18px Lora,serif;color:#cfc7e8;text-shadow:0 2px 0 #000}
@@ -81,6 +83,9 @@ body.big .hud,body.big .screen .panel,body.big .titlewrap,body.big .dialog{zoom:
 .screen{position:fixed;inset:0;display:none;place-items:center;z-index:5}
 .screen.show{display:grid}
 #pause,#result{background:rgba(8,10,26,.72)}
+#result.demo-dawn{background:linear-gradient(180deg,rgba(11,14,39,.32),rgba(213,105,47,.48))}
+#result.demo-dawn::before{content:'';position:absolute;left:50%;bottom:12%;width:min(36vw,280px);aspect-ratio:1;border-radius:50%;transform:translateX(-50%);background:radial-gradient(circle,#fff6c2 0 38%,#ffc254 40% 62%,rgba(255,154,66,0) 70%);filter:drop-shadow(0 0 44px #ffb347);animation:sunrise .9s ease-out both}
+@keyframes sunrise{from{transform:translate(-50%,35%);opacity:0}to{transform:translate(-50%,0);opacity:.9}}
 #settings,#lb,#levels{background:rgba(8,10,26,.45)}
 .titlewrap{text-align:center;padding:20px;max-width:min(96vw,980px)}
 .title{font:800 clamp(52px,10vw,132px)/.92 Lora,serif;margin:0;color:#ffcf2e;letter-spacing:1px;
@@ -112,6 +117,7 @@ body.big .hud,body.big .screen .panel,body.big .titlewrap,body.big .dialog{zoom:
   <div id="flames" class="pill"></div>
   <div id="timer" class="pill">05:00</div>
   <div id="night">Đêm 1 · Đảo Bến</div>
+  <div id="demoBadge" class="pill" role="status" aria-live="polite"><span id="demoLabel">DEMO · Đêm 1/3</span><span id="demoClock">00:30</span><button class="slate demo-stop" id="demoStop">Thoát demo</button></div>
   <div id="right" class="pill">Đèn <b id="lit">0/5</b><br>Điểm <b id="score">0</b></div>
   <div id="banner" class="pill">🍃 Gió mạnh đang thổi!</div>
   <div id="prompt" class="pill"><kbd>E</kbd><span id="promptText">Nạp ánh sáng</span></div>
@@ -133,7 +139,7 @@ body.big .hud,body.big .screen .panel,body.big .titlewrap,body.big .dialog{zoom:
       <button class="ghost" data-night="2">Đêm 2</button>
       <button class="slate" data-night="3">Đêm 3</button>
     </div>
-    <div class="btns" style="margin-top:26px"><button class="slate" id="menuLb">Bảng xếp hạng</button></div>
+    <div class="btns" style="margin-top:26px"><button class="ghost" id="menuDemo">▶ Demo tự động</button><button class="slate" id="menuLb">Bảng xếp hạng</button></div>
   </div>
   <button class="gear" id="menuSettings" aria-label="Cài đặt"><img src="/assets/gear.png" alt=""></button>
 </div>
@@ -459,6 +465,7 @@ addEventListener('keydown', e => {
   if (screenMode === 'intro' && (e.code === 'Enter' || e.code === 'NumpadEnter')){ e.preventDefault(); startNight(); return; }
   if (document.activeElement && document.activeElement.tagName === 'INPUT' && document.activeElement.type === 'text') return;
   const k = KEYMAP[e.code];
+  if (demoActive){ if (k === 'pause'){ e.preventDefault(); stopDemo(); } return; }
   if (k === 'pause'){ if (screenMode === 'play' || screenMode === 'pause') togglePause(); e.preventDefault(); return; }
   if (!k) return; e.preventDefault(); if (keys[k]) return; keys[k] = true; sendInput();
 });
@@ -559,6 +566,9 @@ const art = (() => {
 // ---------- screens ----------
 let night = 1, total = (() => { try { return +sessionStorage.getItem('ddl-total') || 0; } catch { return 0; } })(), resultShown = false;
 let settingsFrom = 'menu', levelsFrom = 'menu';
+const DEMO_STAGE_MS = 30_000;
+let demoActive = false, demoNight = 1, demoRunId = 0, demoTimer = null, demoStartedAt = 0, demoPending = false, demoSawPlaying = false;
+let demoNextInteract = 0, demoNextDash = 0, demoNextJump = 0, demoNextPulse = 0, demoLastPos = null, demoProgressAt = 0;
 const ART_SCREENS = new Set(['menu', 'levels', 'intro', 'lb', 'settings']);
 const show = id => {
   for (const s of document.querySelectorAll('.screen')) s.classList.toggle('show', s.id === id);
@@ -594,12 +604,60 @@ function beginRun(n){
   if (n === 1){ total = 0; nightsWon = 0; try { sessionStorage.setItem('ddl-total', 0); sessionStorage.setItem('ddl-won', 0); } catch {} }
   openIntro(n);
 }
+function updateDemoBadge(now){
+  const left = Math.max(0, Math.ceil((DEMO_STAGE_MS - (now - demoStartedAt)) / 1000));
+  $('demoLabel').textContent = `DEMO · Đêm ${demoNight}/3 · ${NIGHTS[demoNight].name}`;
+  $('demoClock').textContent = `00:${String(left).padStart(2, '0')}`;
+}
+async function resetDemoNight(n, runId, newStage){
+  const response = await api('/api/demo/reset', {night:n});
+  if (!response.ok) throw new Error(`Demo reset failed: HTTP ${response.status}`);
+  if (!demoActive || runId !== demoRunId) return;
+  night = demoNight = n; resultShown = false; prev = null; lastSent = ''; yaw = 0;
+  for (const k in keys) keys[k] = false;
+  buildWorld(n); screenMode = 'play'; show(null);
+  demoSawPlaying = false;
+  demoLastPos = null; demoProgressAt = performance.now();
+  demoNextInteract = demoNextDash = demoNextJump = demoNextPulse = 0;
+  if (newStage) demoStartedAt = performance.now();
+  demoPending = false;
+  updateDemoBadge(performance.now());
+}
+function demoFailed(error, runId){
+  if (!demoActive || runId !== demoRunId) return;
+  console.error('Demo mode failed', error);
+  stopDemo();
+  $('loading').textContent = 'Không thể chạy demo. Vui lòng kiểm tra kết nối máy chủ.';
+  $('loading').style.display = 'grid';
+  setTimeout(() => { $('loading').style.display = 'none'; }, 5000);
+}
+async function startDemo(){
+  if (demoActive) return;
+  audio(); startMusic();
+  demoActive = true; demoPending = true;
+  const runId = ++demoRunId;
+  $('demoBadge').style.display = 'flex';
+  try {
+    await resetDemoNight(1, runId, true);
+    if (demoActive && runId === demoRunId) demoTimer = setInterval(runDemoCycle, 100);
+  } catch (error) { demoFailed(error, runId); }
+}
+function stopDemo(){
+  if (!demoActive) return;
+  demoActive = false; demoPending = false; demoRunId++;
+  clearInterval(demoTimer); demoTimer = null;
+  $('demoBadge').style.display = 'none';
+  screenMode = 'menu'; show('menu');
+  api('/api/input', {x:0, z:0, yaw:0, jump:false, dash:false, interact:false, pulse:false})
+    .catch(error => console.error('Could not stop demo input', error));
+}
 document.querySelectorAll('#menu [data-night]').forEach(b => b.onclick = () => beginRun(+b.dataset.night));
 document.querySelectorAll('#levels [data-lv]').forEach(b => b.onclick = () => beginRun(+b.dataset.lv));
 function openLevels(from){ levelsFrom = from; show('levels'); }
 $('pLevels').onclick = () => openLevels('pause'); $('resLevels').onclick = () => openLevels('result');
 $('lvBack').onclick = () => { if (levelsFrom === 'pause') show('pause'); else if (levelsFrom === 'result') show('result'); else show('menu'); };
 $('introGo').onclick = startNight;
+$('menuDemo').onclick = startDemo; $('demoStop').onclick = stopDemo;
 $('pResume').onclick = togglePause;
 $('pRestart').onclick = () => { openIntro(night); };
 $('pMenu').onclick = () => { screenMode = 'menu'; show('menu'); };
@@ -656,6 +714,70 @@ const cdStyle = (el, frac) => { el.querySelector('i').style.background = frac > 
 
 // ---------- state polling ----------
 let state = null, prev = null;
+const demoDist = (a, b) => Math.hypot(a[0] - b[0], a[2] - b[2]);
+function nearestDemoTarget(items, pos){
+  return items.reduce((best, item) => !best || demoDist(item.pos, pos) < demoDist(best.pos, pos) ? item : best, null);
+}
+function demoWaypoint(n, from, to){
+  if (n !== 2) return to;
+  const leftToRight = from[0] < 26 && to[0] > 44, rightToLeft = from[0] > 44 && to[0] < 26;
+  if (leftToRight){
+    if (from[0] < 26.5) return [27, 0, 0];
+    if (from[0] < 34.5) return [35, 0, 0];
+    if (from[0] < 43.5) return [43, 0, 0];
+  } else if (rightToLeft){
+    if (from[0] > 43.5) return [43, 0, 0];
+    if (from[0] > 35.5) return [35, 0, 0];
+    if (from[0] > 26.5) return [27, 0, 0];
+  }
+  return to;
+}
+function runDemoBot(s, now){
+  const p = s.player, pos = p.pos;
+  if (demoLastPos && demoDist(pos, demoLastPos) > 0.25) demoProgressAt = now;
+  demoLastPos = [...pos];
+
+  const sameLevel = items => items.filter(item => Math.abs(item.pos[1] - pos[1]) <= 1.5);
+  const motes = sameLevel(s.motes || []);
+  const lamps = (s.lanterns || []).filter(l => !l.lit || l.fuel < 25);
+  const lampTargets = sameLevel(lamps);
+  const mote = nearestDemoTarget(motes.length ? motes : (s.motes || []), pos);
+  const lamp = nearestDemoTarget(lampTargets.length ? lampTargets : lamps, pos);
+  let target = p.carried >= (p.capacity || 10) || (!mote && p.carried > 0) ? lamp : mote;
+  if (p.carried > 0 && lamp && demoDist(pos, lamp.pos) <= 2) target = lamp;
+
+  let x = 0, z = 0, jump = false, dash = false, interact = false, pulse = false;
+  if (target){
+    const waypoint = demoWaypoint(s.night, pos, target.pos);
+    const dx = waypoint[0] - pos[0], dz = waypoint[2] - pos[2], d = Math.hypot(dx, dz);
+    if (d > 1.1){ x = dx / d; z = dz / d; }
+    if (target === lamp && demoDist(pos, lamp.pos) <= 2 && p.carried > 0 && now >= demoNextInteract){
+      x = z = 0; interact = true; demoNextInteract = now + 800;
+    }
+    if (d > 6 && p.grounded && p.dash_cd_s <= 0.05 && now >= demoNextDash){
+      dash = true; demoNextDash = now + 1800;
+    }
+  }
+  const stuck = now - demoProgressAt > 1500;
+  if (stuck && p.grounded && now >= demoNextJump){ jump = true; demoNextJump = now + 1800; }
+  if (p.carried >= 3 && p.pulse_cd_s <= 0.05 && now >= demoNextPulse &&
+      (s.shades || []).some(shade => demoDist(pos, shade.pos) <= 4.5)){
+    pulse = true; demoNextPulse = now + 1200;
+  }
+  api('/api/input', {x, z, yaw:0, jump, dash, interact, pulse})
+    .catch(error => console.error('Demo input failed', error));
+}
+function runDemoCycle(){
+  if (!demoActive || demoPending) return;
+  const now = performance.now();
+  if (now - demoStartedAt >= DEMO_STAGE_MS){
+    demoPending = true;
+    resetDemoNight(demoNight % 3 + 1, demoRunId, true).catch(error => demoFailed(error, demoRunId));
+    return;
+  }
+  updateDemoBadge(now);
+  if (screenMode === 'play' && state && state.night === demoNight && state.state === 'playing') runDemoBot(state, now);
+}
 async function poll(){
   let ok = false;
   try { const r = await api('/api/state'); state = await r.json(); ok = true; $('loading').style.display = 'none'; }
@@ -684,7 +806,10 @@ function onState(){
     }
     if (s.state === 'paused' && screenMode === 'play'){ screenMode = 'pause'; show('pause'); }
     if (s.state === 'playing' && screenMode === 'pause'){ screenMode = 'play'; show(null); }
-    if ((s.state === 'won' || s.state === 'lost') && !resultShown) showResult(s);
+    if (demoActive){
+      if (s.night === demoNight && s.state === 'playing') demoSawPlaying = true;
+      if (demoSawPlaying && s.night === demoNight && (s.state === 'won' || s.state === 'lost') && !resultShown) showResult(s);
+    } else if ((s.state === 'won' || s.state === 'lost') && !resultShown) showResult(s);
   }
   prev = s;
   // HUD
@@ -715,15 +840,23 @@ function charmPos(n, i){ return n === 2 ? [35,0,0] : [[30,0,25],[-30,0,25]][i] |
 function showResult(s){
   resultShown = true; screenMode = 'result';
   const won = s.state === 'won';
-  if (won){ total += s.score; nightsWon += 1; try { sessionStorage.setItem('ddl-total', total); sessionStorage.setItem('ddl-won', nightsWon); } catch {} sfx.win(); } else sfx.lose();
-  const askName = !won || night === 3; $('lbForm').style.display = askName ? 'block' : 'none'; $('lbSave').disabled = false; $('lbMsg').textContent = '';
-  $('resTitle').textContent = won ? (night === 3 ? '☀ Bình Minh ☀' : 'Đảo đã sáng!') : 'Sương đen đã thắng…';
+  $('result').classList.toggle('demo-dawn', demoActive && won);
+  if (won){ if (!demoActive){ total += s.score; nightsWon += 1; try { sessionStorage.setItem('ddl-total', total); sessionStorage.setItem('ddl-won', nightsWon); } catch {} } sfx.win(); } else sfx.lose();
+  const askName = !demoActive && (!won || night === 3); $('lbForm').style.display = askName ? 'block' : 'none'; $('lbSave').disabled = false; $('lbMsg').textContent = '';
+  $('resTitle').textContent = won ? (demoActive || night === 3 ? '☀ Bình Minh ☀' : 'Đảo đã sáng!') : 'Sương đen đã thắng…';
   const need = Math.ceil(0.6 * s.lanterns.length);
-  $('resText').innerHTML = won ? `Điểm Đêm ${night}: <b>${s.score}</b><br>Tổng điểm: <b>${total}</b>` : `Bình minh cần ít nhất ${need} đèn đang sáng. Điểm Đêm ${night}: <b>${s.score}</b>. Thử lại nhé, Mây!`;
-  $('resNext').style.display = won ? '' : 'none';
+  $('resText').innerHTML = demoActive ? `Đèn đã giữ sáng đến bình minh · Đêm ${night}/3` : won ? `Điểm Đêm ${night}: <b>${s.score}</b><br>Tổng điểm: <b>${total}</b>` : `Bình minh cần ít nhất ${need} đèn đang sáng. Điểm Đêm ${night}: <b>${s.score}</b>. Thử lại nhé, Mây!`;
+  $('resNext').style.display = demoActive ? 'none' : won ? '' : 'none';
+  $('resRetry').style.display = demoActive ? 'none' : '';
+  $('resLevels').style.display = demoActive ? 'none' : '';
+  $('resMenu').style.display = demoActive ? 'none' : '';
   $('resNext').textContent = night < 3 ? 'Đêm kế tiếp' : 'Về menu';
   $('resArt').src = won ? '/assets/may.png' : '/assets/shade.png';
-  setTimeout(() => show('result'), 900);
+  const demoResult = demoActive, resultRunId = demoRunId;
+  setTimeout(() => {
+    if (demoResult && (!demoActive || demoRunId !== resultRunId)) return;
+    show('result');
+  }, 900);
 }
 let arrowTarget = null, shadeCue = null;
 function cap(text, warn){
@@ -757,7 +890,7 @@ function frame(){
     pu.spr.scale.x = pu.flip; faceCamera(pu.spr, player.position);
     pu.spr.position.y = (p.grounded && !settings.rm && Math.hypot(v[0], v[2]) > .3) ? Math.abs(Math.sin(t*12))*0.08 : 0;
     pu.light.position.set(camRight.x*0.9*pu.flip, 1.15, camRight.z*0.9*pu.flip); pu.halo.position.copy(pu.light.position);
-    player.visible = !(p.invuln > 0 && Math.floor(t*12) % 2);
+    player.visible = demoActive || !(p.invuln > 0 && Math.floor(t*12) % 2);
     for (const o of pools.mote.values()){ const d = o.userData.data; lerpTo(o, d.pos[0], d.pos[1] + 0.6 + Math.sin(t*3 + o.userData.phase)*0.15, d.pos[2], k); }
     for (const o of pools.lantern.values()){
       const d = o.userData.data, u = o.userData; o.position.set(d.pos[0], d.pos[1], d.pos[2]);

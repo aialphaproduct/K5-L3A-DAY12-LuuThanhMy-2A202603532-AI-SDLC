@@ -11,16 +11,18 @@ Then open http://localhost:8787/ in a browser.
 """
 import argparse
 import json
+import math
 import re
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from simulation import Game
+from simulation import Game, LANTERNS, WIN_RATIO
 
 ROOT = Path(__file__).parent
 PAGES = {'/': 'web3d.html', '/index.html': 'web3d.html', '/3d': 'web3d.html', '/2d': 'preview.html'}
+DEMO_GAME_SECONDS = 27
 
 
 class GameServer:
@@ -31,11 +33,19 @@ class GameServer:
         self.game = Game(seed=seed, night=night)
         self.running = True
 
-    def reset(self, night=None):
+    def reset(self, night=None, demo=False):
         with self.lock:
             if night is not None:
                 self.night = night
-            self.game = Game(seed=self.seed, night=self.night)
+            scenario = None
+            if demo:
+                lit_count = min(len(LANTERNS[self.night]), math.ceil(WIN_RATIO * len(LANTERNS[self.night])) + 1)
+                scenario = {
+                    'player': {'invuln_ticks': DEMO_GAME_SECONDS * 60},
+                    'time_left_s': DEMO_GAME_SECONDS,
+                    'lanterns': [{'id': f'L{i + 1}', 'lit': True, 'fuel': 100} for i in range(lit_count)],
+                }
+            self.game = Game(seed=self.seed, night=self.night, scenario=scenario)
 
     def set_input(self, keys):
         with self.lock:
@@ -114,6 +124,10 @@ def make_handler(server: GameServer):
             elif self.path == '/api/reset':
                 night = data.get('night')
                 server.reset(night=int(night) if night else None)
+                self._send(200, b'{"ok":true}')
+            elif self.path == '/api/demo/reset':
+                night = data.get('night')
+                server.reset(night=int(night) if night else None, demo=True)
                 self._send(200, b'{"ok":true}')
             elif self.path == '/api/leaderboard':
                 import leaderboard
