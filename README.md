@@ -14,9 +14,28 @@ Headless examples: `python3 main.py --headless --seed 1 --night 1 --ticks 600 --
 
 Controls in the visual prototype are WASD to move, E to interact/light, and Space to pulse. The scoring rules and all tuning values are in `game.contract.json`; the simulation is authoritative for automated tests.
 
-### Browser preview (no Ursina/GPU required)
+### Web 3D version (recommended, runs on macOS/Linux/Windows)
 
-`python3 server_preview.py --night 1` serves the real `Game` simulation over HTTP and renders it on a 2D canvas at `http://localhost:8787/` — same controls as above, R to restart. Visual-only, like `visual.py`: the headless runner stays the single source of truth for grading.
+```bash
+python3 server_preview.py
+```
+
+Open `http://localhost:8787/`. The Three.js client renders the real `Game` simulation streamed from the Python server (the headless runner stays the single source of truth for grading). A simpler 2D canvas view is at `/2d`.
+
+- Menu → night intro (Ông Đăng) → play → result → next night; Bình Minh screen after Night 3.
+- HUD per Ticket-02: flames (top left), mm:ss timer (red blink ≤ 30 s), lanterns k/n and score (top right), 10-slot mote bar, Dash/Pulse cooldowns, "E — Nạp ánh sáng (x/10)" prompt, off-screen arrow to the nearest unlit lantern.
+- Pause (Esc/P) with Resume / Restart night / Settings / Menu; volume and mouse sensitivity saved in the browser.
+- Ticket-02 palette and maps (Đảo Bến, Đảo Cau with bridge and jump pads, Đảo Chuông with tiers, ramps and bell tower); ambient light = 0.15 + 0.55 × lit/total.
+
+| Key | Action |
+|---|---|
+| W A S D / ↑ ← ↓ → | Move (relative to camera) |
+| Space | Jump |
+| Shift | Dash |
+| E | Deposit motes into a lantern |
+| F | Pulse (Tỏa Sáng) |
+| Mouse drag / Z X | Rotate camera · wheel to zoom |
+| Esc / P | Pause |
 
 ### Sáng tạo của tôi
 

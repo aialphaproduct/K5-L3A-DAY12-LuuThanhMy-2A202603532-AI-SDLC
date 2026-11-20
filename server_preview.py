@@ -19,7 +19,7 @@ from pathlib import Path
 from simulation import Game
 
 ROOT = Path(__file__).parent
-STATIC_FILE = ROOT / 'preview.html'
+PAGES = {'/': 'web3d.html', '/index.html': 'web3d.html', '/3d': 'web3d.html', '/2d': 'preview.html'}
 
 
 class GameServer:
@@ -39,8 +39,10 @@ class GameServer:
     def set_input(self, keys):
         with self.lock:
             g = self.game
-            g.input['move'] = [float(keys.get('x', 0)), float(keys.get('z', 0))]
-            g.input['cam_yaw_deg'] = 0
+            mx = max(-1.0, min(1.0, float(keys.get('x', 0))))
+            mz = max(-1.0, min(1.0, float(keys.get('z', 0))))
+            g.input['move'] = [mx, mz]
+            g.input['cam_yaw_deg'] = float(keys.get('yaw', 0))
             for k in ('jump', 'dash', 'interact', 'pulse', 'pause'):
                 if k in keys:
                     g.input[k] = bool(keys[k])
@@ -78,8 +80,9 @@ def make_handler(server: GameServer):
             self.wfile.write(body)
 
         def do_GET(self):
-            if self.path == '/' or self.path == '/index.html':
-                body = STATIC_FILE.read_bytes()
+            path = self.path.split('?', 1)[0]
+            if path in PAGES:
+                body = (ROOT / PAGES[path]).read_bytes()
                 self._send(200, body, 'text/html; charset=utf-8')
             elif self.path == '/api/state':
                 body = json.dumps(server.snapshot()).encode('utf-8')

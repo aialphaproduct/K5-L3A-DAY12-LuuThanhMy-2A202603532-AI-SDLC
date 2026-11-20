@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Đảo Đèn Lồng</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;800&family=Lora:ital,wght@0,600;1,500&display=swap" rel="stylesheet">
+<style>
+:root{--night:#0E1430;--fog:#1B2350;--gold:#F2C14E;--text:#F5F1E6;--danger:#FF5A5F;--lamp:#FFB347;--panel:rgba(14,20,48,.72);--line:rgba(242,193,78,.35)}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--night);color:var(--text);font:18px 'Be Vietnam Pro',system-ui,sans-serif;user-select:none}
+canvas{display:block}
+.hud{position:fixed;inset:0;pointer-events:none}
+.pill{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:8px 14px;backdrop-filter:blur(6px)}
+#flames{position:absolute;top:16px;left:16px;display:flex;gap:6px;align-items:center}
+.flame{width:26px;height:34px}
+.flame.off{opacity:.18;filter:grayscale(1)}
+#timer{position:absolute;top:14px;left:50%;transform:translateX(-50%);font-weight:800;font-size:28px;letter-spacing:2px;min-width:110px;text-align:center}
+#timer.low{color:var(--danger);animation:blink .8s steps(2) infinite}
+@keyframes blink{50%{opacity:.35}}
+#right{position:absolute;top:16px;right:16px;text-align:right;line-height:1.5}
+#right b{color:var(--gold)}
+#night{position:absolute;top:66px;left:50%;transform:translateX(-50%);font:italic 500 16px Lora,serif;color:#cfc7e8;opacity:.85}
+#bar{position:absolute;bottom:22px;left:50%;transform:translateX(-50%);display:flex;gap:6px;padding:10px 12px}
+.slot{width:22px;height:22px;border-radius:50%;border:1px solid rgba(255,229,138,.35);background:rgba(255,255,255,.04)}
+.slot.on{background:radial-gradient(circle,#FFF6C2 0 35%,#FFE58A 60%,rgba(255,229,138,.1) 75%);border-color:#FFE58A;box-shadow:0 0 12px #FFE58A}
+#cds{position:absolute;bottom:20px;right:20px;display:flex;gap:12px}
+.cd{width:58px;height:58px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:600;border:1px solid var(--line);position:relative;background:var(--panel)}
+.cd i{position:absolute;inset:0;border-radius:50%}
+.cd span{position:relative;text-align:center;line-height:1.1}
+#prompt{position:absolute;left:50%;bottom:90px;transform:translateX(-50%);display:none}
+#prompt kbd{background:var(--gold);color:#1b1405;border-radius:6px;padding:1px 8px;font-weight:800;margin-right:6px}
+#arrow{position:absolute;width:44px;height:44px;display:none;filter:drop-shadow(0 0 8px var(--lamp))}
+#banner{position:absolute;top:110px;left:50%;transform:translateX(-50%);display:none;color:#cfe3ff}
+#flash{position:fixed;inset:0;background:radial-gradient(circle,transparent 40%,rgba(255,90,95,.55));opacity:0;transition:opacity .35s;pointer-events:none}
+#help{position:absolute;left:16px;bottom:20px;font-size:13px;color:#cfc7e8;line-height:1.6;max-width:260px}
+.screen{position:fixed;inset:0;display:none;place-items:center;background:radial-gradient(ellipse at 50% 40%,rgba(27,35,80,.55),rgba(8,10,26,.92));z-index:5}
+.screen.show{display:grid}
+.card{text-align:center;max-width:560px;padding:32px 36px}
+.card h1{font:600 clamp(40px,7vw,76px) Lora,serif;margin:0;color:#FFE9B0;text-shadow:0 0 30px rgba(255,179,71,.6)}
+.card h2{font:600 clamp(26px,4vw,40px) Lora,serif;margin:0 0 8px;color:#FFE9B0}
+.card p{color:#d9d2ea;line-height:1.6;margin:12px 0}
+.card .quote{font:italic 500 18px Lora,serif;color:#e8dcc0}
+.btns{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:20px}
+button{font:600 17px 'Be Vietnam Pro',sans-serif;color:#1b1405;background:linear-gradient(#FFD27A,#F2A93B);border:0;border-radius:12px;padding:12px 22px;cursor:pointer;box-shadow:0 6px 20px rgba(242,169,59,.3);pointer-events:auto}
+button.ghost{background:transparent;color:var(--text);border:1px solid var(--line);box-shadow:none}
+button:focus-visible{outline:3px solid #fff;outline-offset:2px}
+label{display:flex;justify-content:space-between;gap:16px;align-items:center;margin:10px 0}
+input[type=range]{width:200px}
+#loading{position:fixed;inset:0;display:grid;place-items:center;background:var(--night);z-index:9;font:italic 500 20px Lora,serif;color:#FFE9B0}
+@media (max-width:640px){#help{display:none}#timer{font-size:22px}.slot{width:16px;height:16px}}
+</style>
+</head>
+<body>
+<div id="loading">Đang thắp đèn…</div>
+<div class="hud" id="hud">
+  <div id="flames" class="pill"></div>
+  <div id="timer" class="pill">05:00</div>
+  <div id="night">Đêm 1 · Đảo Bến</div>
+  <div id="right" class="pill">Đèn <b id="lit">0/5</b><br>Điểm <b id="score">0</b></div>
+  <div id="banner" class="pill">🍃 Gió mạnh đang thổi!</div>
+  <div id="prompt" class="pill"><kbd>E</kbd><span id="promptText">Nạp ánh sáng</span></div>
+  <svg id="arrow" viewBox="0 0 44 44"><path d="M22 4 L38 34 L22 26 L6 34 Z" fill="#FFB347" stroke="#FFE9B0" stroke-width="2"/></svg>
+  <div id="bar" class="pill"></div>
+  <div id="cds"><div class="cd" id="cdDash"><i></i><span>Lướt<br>Shift</span></div><div class="cd" id="cdPulse"><i></i><span>Tỏa sáng<br>F</span></div></div>
+  <div id="help" class="pill">WASD/↑↓←→ di chuyển · Space nhảy · Shift lướt · E nạp đèn · F tỏa sáng · Kéo chuột / Z X xoay camera · Esc tạm dừng</div>
+</div>
+<div id="flash"></div>
+
+<div class="screen show" id="menu"><div class="card">
+  <h1>Đảo Đèn Lồng</h1>
+  <p class="quote">Sương đen đã nuốt ánh sáng của đảo. Mây ơi, thắp lại đèn trước bình minh nhé.</p>
+  <div class="btns">
+    <button data-night="1">Bắt đầu · Đêm 1</button>
+    <button class="ghost" data-night="2">Đêm 2</button>
+    <button class="ghost" data-night="3">Đêm 3</button>
+    <button class="ghost" id="menuSettings">Cài đặt</button>
+  </div>
+</div></div>
+
+<div class="screen" id="intro"><div class="card">
+  <p id="introNight" style="letter-spacing:4px;color:var(--gold)">ĐÊM 1</p>
+  <h2 id="introName">Đảo Bến</h2>
+  <p class="quote" id="introQuote"></p>
+  <div class="btns"><button id="introGo">Vào đảo</button></div>
+</div></div>
+
+<div class="screen" id="pause"><div class="card">
+  <h2>Tạm dừng</h2>
+  <div class="btns">
+    <button id="pResume">Tiếp tục</button>
+    <button class="ghost" id="pRestart">Chơi lại Đêm</button>
+    <button class="ghost" id="pSettings">Cài đặt</button>
+    <button class="ghost" id="pMenu">Về menu</button>
+  </div>
+</div></div>
+
+<div class="screen" id="settings"><div class="card pill" style="min-width:340px">
+  <h2>Cài đặt</h2>
+  <label>Âm lượng <input type="range" id="sVol" min="0" max="1" step="0.05"></label>
+  <label>Độ nhạy chuột <input type="range" id="sSens" min="0.1" max="2" step="0.05"></label>
+  <div class="btns"><button id="sBack">Xong</button></div>
+</div></div>
+
+<div class="screen" id="result"><div class="card">
+  <h2 id="resTitle">Bình minh!</h2>
+  <p id="resText"></p>
+  <div class="btns"><button id="resNext">Đêm kế tiếp</button><button class="ghost" id="resRetry">Chơi lại Đêm</button><button class="ghost" id="resMenu">Về menu</button></div>
+</div></div>
+
+<script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js"}}</script>
+<script type="module">
+import * as THREE from 'three';
+
+// ---------- constants from Ticket-02 palette / maps ----------
+const C = {night:0x0E1430, fog:0x1B2350, grass:0x2F5D50, sand:0xC9B48A, wood:0x6B4A2F, sea:0x12384A,
+  lampOn:0xFFB347, lampCore:0xFFE9B0, lampOff:0x5B5F6E, moteCore:0xFFF6C2, moteHalo:0xFFE58A,
+  shade:0x120A1A, shadeRim:0x7A3CFF, shadeStun:0x3A3450, coat:0xE8E2D0, scarf:0xC8102E, gold:0xF2C14E, drifter:0x8FA3B8};
+const NIGHTS = {
+  1:{name:'Đảo Bến', quote:'Ông Đăng: "Đảo Bến nhỏ thôi, cháu cứ men theo vòng tròn mà gom đom đóm."', dur:300},
+  2:{name:'Đảo Cau', quote:'Ông Đăng: "Hai đảo nối bằng cầu tre. Cẩn thận Gió Lạc, nó thích đom đóm lắm."', dur:330},
+  3:{name:'Đảo Chuông', quote:'Ông Đăng: "Đảo Chuông có ba tầng, gió mạnh lắm. Nghe lá bay là biết gió sắp tới."', dur:360},
+};
+const api = (p, body) => fetch(p, body ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)} : undefined);
+const $ = id => document.getElementById(id);
+const settings = (() => { try { return Object.assign({vol:.6, sens:1}, JSON.parse(localStorage.getItem('ddl-settings')||'{}')); } catch { return {vol:.6, sens:1}; } })();
+const saveSettings = () => { try { localStorage.setItem('ddl-settings', JSON.stringify(settings)); } catch {} };
+
+// ---------- renderer / scene ----------
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+document.body.prepend(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(C.night);
+scene.fog = new THREE.Fog(C.fog, 45, 140);
+const camera = new THREE.PerspectiveCamera(55, innerWidth/innerHeight, 0.1, 400);
+addEventListener('resize', () => { camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+
+const hemi = new THREE.HemisphereLight(0x8fa0ff, 0x2a2840, 0.8); scene.add(hemi);
+scene.add(new THREE.AmbientLight(0x4a5590, 0.6));
+renderer.toneMappingExposure = 1.35;
+const moon = new THREE.DirectionalLight(0xb8c4ff, 0.5);
+moon.position.set(-30, 50, 20); moon.castShadow = true;
+moon.shadow.mapSize.set(1024, 1024);
+Object.assign(moon.shadow.camera, {left:-60, right:60, top:60, bottom:-60, far:150});
+scene.add(moon, moon.target);
+
+// stars
+{ const g = new THREE.BufferGeometry(), n = 900, p = new Float32Array(n*3);
+  for (let i=0;i<n;i++){ const u=Math.random()*Math.PI*2, v=Math.random()*0.45*Math.PI, r=180;
+    p.set([Math.cos(u)*Math.cos(v)*r, Math.sin(v)*r+10, Math.sin(u)*Math.cos(v)*r], i*3); }
+  g.setAttribute('position', new THREE.BufferAttribute(p,3));
+  scene.add(new THREE.Points(g, new THREE.PointsMaterial({color:0xfff4d6, size:0.9, fog:false}))); }
+// sea of clouds
+const sea = new THREE.Mesh(new THREE.CircleGeometry(400, 64), new THREE.MeshStandardMaterial({color:C.sea, roughness:1}));
+sea.rotation.x = -Math.PI/2; sea.position.y = -8; scene.add(sea);
+
+// soft glow sprite texture
+const glowTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+  const r = g.createRadialGradient(32,32,0,32,32,32); r.addColorStop(0,'rgba(255,255,255,1)'); r.addColorStop(.3,'rgba(255,240,200,.6)'); r.addColorStop(1,'rgba(255,220,150,0)');
+  g.fillStyle = r; g.fillRect(0,0,64,64); return new THREE.CanvasTexture(c); })();
+const glow = (color, size) => { const s = new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex, color, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending})); s.scale.set(size,size,1); return s; };
+const std = (color, extra={}) => new THREE.MeshStandardMaterial(Object.assign({color, roughness:.85}, extra));
+
+// ---------- island geometry per night ----------
+let world = new THREE.Group(); scene.add(world);
+function islandDisc(cx, cz, r){
+  const g = new THREE.Group();
+  const top = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.6, 64), std(C.grass)); top.position.y = -0.3; top.receiveShadow = true;
+  const rim = new THREE.Mesh(new THREE.CylinderGeometry(r+0.6, r*0.55, 7, 64), std(C.sand)); rim.position.y = -4;
+  g.add(top, rim); g.position.set(cx, 0, cz); return g;
+}
+function jumpPad(x, y, z){
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 0.15, 32), std(C.gold, {emissive:C.gold, emissiveIntensity:.6}));
+  m.position.set(x, y+0.08, z); const s = glow(0xFFE58A, 4); s.position.set(x, y+0.6, z); return [m, s];
+}
+function buildWorld(night){
+  scene.remove(world); world = new THREE.Group(); scene.add(world);
+  if (night === 1) world.add(islandDisc(0, 0, 40));
+  if (night === 2){
+    world.add(islandDisc(0, 0, 28), islandDisc(70, 0, 28));
+    const bridge = new THREE.Mesh(new THREE.BoxGeometry(18, 0.4, 4), std(C.wood)); bridge.position.set(35, -0.2, 0); bridge.receiveShadow = true; world.add(bridge);
+    for (let x=26.5; x<44; x+=1.2){ const plank = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.05, 4), std(0x4a3320)); plank.position.set(x, 0.01, 0); world.add(plank); }
+    world.add(...jumpPad(20,0,18), ...jumpPad(50,0,-18));
+  }
+  if (night === 3){
+    world.add(islandDisc(0, 0, 45));
+    // tier 1: half annulus 12-24 on z>0, Y=3 (shape y maps to world -z, so use the y<0 half)
+    const sh = new THREE.Shape(); sh.absarc(0,0,24,Math.PI,2*Math.PI,false); sh.absarc(0,0,12,2*Math.PI,Math.PI,true);
+    const t1 = new THREE.Mesh(new THREE.ExtrudeGeometry(sh, {depth:3, bevelEnabled:false, curveSegments:48}), std(0x3a6b5c));
+    t1.rotation.x = -Math.PI/2; t1.castShadow = t1.receiveShadow = true; world.add(t1);
+    const t2 = new THREE.Mesh(new THREE.CylinderGeometry(8, 8, 6, 48), std(0x46786a)); t2.position.y = 3; t2.castShadow = t2.receiveShadow = true; world.add(t2);
+    const tower = new THREE.Mesh(new THREE.CylinderGeometry(2, 2, 8, 24), std(0x8a6b4a)); tower.position.y = 10; tower.castShadow = true; world.add(tower);
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(3, 2.5, 24), std(C.wood)); roof.position.y = 15.2; world.add(roof);
+    const bell = new THREE.Mesh(new THREE.SphereGeometry(1.1, 24, 12, 0, Math.PI*2, 0, Math.PI/2), std(C.gold, {metalness:.7, roughness:.3, side:THREE.DoubleSide}));
+    bell.position.y = 12.6; bell.rotation.x = Math.PI; world.add(bell);
+    for (const deg of [30, 150]){ // ramps: r 30 (Y0) -> r 24 (Y3), 3 m wide
+      const a = deg*Math.PI/180, len = Math.hypot(6, 3);
+      const ramp = new THREE.Mesh(new THREE.BoxGeometry(3, 0.4, len), std(C.wood));
+      ramp.position.set(Math.cos(a)*27, 1.5, Math.sin(a)*27);
+      ramp.rotation.order = 'YXZ'; ramp.rotation.y = Math.atan2(Math.cos(a), Math.sin(a)); ramp.rotation.x = Math.atan2(3, 6);
+      ramp.castShadow = ramp.receiveShadow = true; world.add(ramp);
+    }
+    world.add(...jumpPad(0,3,13));
+  }
+  // decorative grass tufts / rocks (visual only)
+  const R = night === 3 ? 44 : (night === 2 ? 27 : 39);
+  const tuft = new THREE.InstancedMesh(new THREE.ConeGeometry(0.15, 0.7, 4), std(0x3f7a66), 260); const m4 = new THREE.Matrix4();
+  for (let i=0;i<260;i++){ const a = Math.random()*Math.PI*2, r = 3 + Math.random()*(R-4), cx = night===2 && i%2 ? 70 : 0;
+    m4.makeTranslation(cx + Math.cos(a)*r, 0.3, Math.sin(a)*r); tuft.setMatrixAt(i, m4); }
+  world.add(tuft);
+}
+
+// ---------- actors ----------
+function makePlayer(){
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.38, 0.7, 6, 16), std(C.coat)); body.position.y = 0.75; body.castShadow = true;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.3, 20, 16), std(0xf3d2b0)); head.position.y = 1.45; head.castShadow = true;
+  const scarf = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.08, 8, 20), std(C.scarf)); scarf.rotation.x = Math.PI/2; scarf.position.y = 1.18;
+  const hat = new THREE.Mesh(new THREE.ConeGeometry(0.75, 0.42, 28), std(C.sand)); hat.position.y = 1.78; hat.castShadow = true;
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.5), std(C.wood)); pole.position.set(0.55, 1.45, 0.25);
+  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 10), std(C.lampOn, {emissive:C.lampOn, emissiveIntensity:2})); lamp.position.set(0.55, 1.18, 0.25);
+  const light = new THREE.PointLight(C.lampOn, 6, 9, 2); light.position.copy(lamp.position);
+  const halo = glow(C.lampOn, 1.6); halo.position.copy(lamp.position);
+  g.add(body, head, scarf, hat, pole, lamp, light, halo);
+  return g;
+}
+const player = makePlayer(); scene.add(player);
+const pools = {mote:new Map(), lantern:new Map(), shade:new Map(), drifter:new Map(), charm:new Map()};
+function makeMote(){ const g = new THREE.Group(); const core = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), new THREE.MeshBasicMaterial({color:C.moteCore})); g.add(core, glow(C.moteHalo, 1.1)); g.userData.phase = Math.random()*6; return g; }
+function makeLantern(){
+  const g = new THREE.Group();
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 3, 10), std(C.wood)); post.position.y = 1.5; post.castShadow = true;
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.1, 0.1), std(C.wood)); arm.position.set(0.4, 2.9, 0);
+  const paper = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.85, 16), std(C.lampOff, {emissive:0x000000})); paper.position.set(0.8, 2.35, 0); paper.castShadow = true;
+  const capT = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.45, 0.12, 16), std(C.scarf)); capT.position.set(0.8, 2.83, 0);
+  const capB = capT.clone(); capB.position.y = 1.87; capB.rotation.x = Math.PI;
+  const light = new THREE.PointLight(C.lampOn, 0, 16, 1.6); light.position.set(0.8, 2.4, 0);
+  const halo = glow(C.lampOn, 5); halo.position.set(0.8, 2.35, 0); halo.visible = false;
+  const ring = new THREE.Mesh(new THREE.RingGeometry(5.8, 6, 64), new THREE.MeshBasicMaterial({color:C.lampOn, transparent:true, opacity:.25, side:THREE.DoubleSide}));
+  ring.rotation.x = -Math.PI/2; ring.position.y = 0.05; ring.visible = false;
+  g.add(post, arm, paper, capT, capB, light, halo, ring);
+  Object.assign(g.userData, {paper, light, halo, ring});
+  return g;
+}
+function makeShade(){
+  const g = new THREE.Group();
+  const bodyMat = std(C.shade, {roughness:.4, emissive:C.shadeRim, emissiveIntensity:.08});
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.7, 20, 16), bodyMat); body.scale.y = 1.2; body.castShadow = true;
+  const rim = new THREE.Mesh(new THREE.SphereGeometry(0.76, 20, 16), new THREE.MeshBasicMaterial({color:C.shadeRim, transparent:true, opacity:.28, side:THREE.BackSide})); rim.scale.y = 1.2;
+  const eyeM = new THREE.MeshBasicMaterial({color:C.shadeRim});
+  const e1 = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), eyeM), e2 = e1.clone(); e1.position.set(-0.22, 0.2, 0.62); e2.position.set(0.22, 0.2, 0.62);
+  const tails = []; for (let i=0;i<5;i++){ const t = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.7, 6), bodyMat); const a = i/5*Math.PI*2; t.position.set(Math.cos(a)*0.45, -0.85, Math.sin(a)*0.45); t.rotation.x = Math.PI; tails.push(t); g.add(t); }
+  g.add(body, rim, e1, e2); Object.assign(g.userData, {bodyMat, rim, eyeM, tails, phase:Math.random()*6});
+  return g;
+}
+function makeDrifter(){
+  const g = new THREE.Group();
+  const ribbon = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.35, 12, 1), new THREE.MeshStandardMaterial({color:C.drifter, side:THREE.DoubleSide, transparent:true, opacity:.85, emissive:C.drifter, emissiveIntensity:.3}));
+  g.add(ribbon); g.userData.ribbon = ribbon; return g;
+}
+function makeCharm(){
+  const g = new THREE.Group();
+  const card = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.75, 0.05), std(C.scarf, {emissive:C.scarf, emissiveIntensity:.4}));
+  const edge = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.85, 0.03), std(C.gold, {metalness:.6, roughness:.3}));
+  g.add(edge, card, glow(C.gold, 1.6)); return g;
+}
+const makers = {mote:makeMote, lantern:makeLantern, shade:makeShade, drifter:makeDrifter, charm:makeCharm};
+function sync(kind, items){
+  const pool = pools[kind], seen = new Set();
+  for (const it of items){
+    seen.add(it.id);
+    let o = pool.get(it.id);
+    if (!o){ o = makers[kind](); pool.set(it.id, o); scene.add(o); if (it.pos) o.position.set(it.pos[0], it.pos[1], it.pos[2]); }
+    o.userData.data = it;
+  }
+  for (const [id, o] of pool) if (!seen.has(id)){ scene.remove(o); pool.delete(id); }
+}
+
+// pulse ring effect
+const fx = [];
+function pulseRing(pos){
+  const m = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.8, 64), new THREE.MeshBasicMaterial({color:C.lampCore, transparent:true, opacity:.9, side:THREE.DoubleSide, blending:THREE.AdditiveBlending}));
+  m.rotation.x = -Math.PI/2; m.position.set(pos.x, pos.y + 0.8, pos.z); scene.add(m); fx.push({m, t:0});
+}
+
+// ---------- audio (tiny WebAudio synth, no asset files) ----------
+let ac, master, musicOn = false;
+function audio(){ if (!ac){ ac = new AudioContext(); master = ac.createGain(); master.gain.value = settings.vol; master.connect(ac.destination); } return ac; }
+function tone(freq, dur=.15, type='sine', vol=.25, slide=0){
+  if (!ac) return; const o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime;
+  o.type = type; o.frequency.setValueAtTime(freq, t); if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(30, freq*slide), t+dur);
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t+dur); o.connect(g).connect(master); o.start(t); o.stop(t+dur+.02);
+}
+const sfx = {
+  pick:()=>tone(1320,.12,'triangle',.18,1.5), lit:()=>{ [523,659,784,1046].forEach((f,i)=>setTimeout(()=>tone(f,.5,'sine',.18),i*80)); },
+  pulse:()=>tone(220,.5,'sawtooth',.12,3), hit:()=>tone(140,.35,'square',.2,.5), jump:()=>tone(440,.15,'triangle',.12,1.8),
+  dash:()=>tone(900,.18,'sawtooth',.08,.4), win:()=>{ [523,659,784,1046,1318].forEach((f,i)=>setTimeout(()=>tone(f,.6,'sine',.2),i*120)); },
+  lose:()=>{ [392,330,262].forEach((f,i)=>setTimeout(()=>tone(f,.6,'triangle',.2),i*200)); }, spawn:()=>tone(90,.6,'sine',.25,.6), tick:()=>tone(1000,.05,'square',.08),
+};
+function startMusic(){
+  if (musicOn || !ac) return; musicOn = true;
+  const pad = ac.createGain(); pad.gain.value = .035; pad.connect(master);
+  [130.8, 196, 261.6, 329.6].forEach((f, i) => { const o = ac.createOscillator(), l = ac.createOscillator(), lg = ac.createGain();
+    o.type = 'sine'; o.frequency.value = f; l.frequency.value = .07 + i*.03; lg.gain.value = 1.5; l.connect(lg).connect(o.frequency); o.connect(pad); o.start(); l.start(); });
+}
+
+// ---------- input ----------
+const keys = {};
+let yaw = 0, camDist = 11, dragging = false, lastSent = '', screenMode = 'menu';
+const KEYMAP = {KeyW:'up', ArrowUp:'up', KeyS:'down', ArrowDown:'down', KeyA:'left', ArrowLeft:'left', KeyD:'right', ArrowRight:'right',
+  Space:'jump', ShiftLeft:'dash', ShiftRight:'dash', KeyE:'interact', KeyF:'pulse', KeyZ:'rotL', KeyX:'rotR'};
+function sendInput(force){
+  if (screenMode !== 'play' && screenMode !== 'pause') return;
+  const sx = (keys.right?1:0) - (keys.left?1:0), sz = (keys.up?1:0) - (keys.down?1:0);
+  // Camera looks along (sin yaw, cos yaw). In three.js that view puts world +X on screen-left,
+  // so the screen-right key maps to contract x = -1. With cam_yaw_deg = yaw this gives
+  // world = forward*up + screenRight*right exactly (see contract move formula).
+  const body = {x:-sx, z:sz, yaw: yaw*180/Math.PI, jump:!!keys.jump, dash:!!keys.dash, interact:!!keys.interact, pulse:!!keys.pulse, pause:!!keys.pause};
+  const s = JSON.stringify(body); if (!force && s === lastSent) return; lastSent = s; api('/api/input', body).catch(()=>{});
+}
+addEventListener('keydown', e => {
+  audio(); startMusic();
+  if (e.code === 'Escape' || e.code === 'KeyP'){ if (screenMode === 'play' || screenMode === 'pause') togglePause(); e.preventDefault(); return; }
+  const k = KEYMAP[e.code]; if (!k) return; e.preventDefault(); if (keys[k]) return; keys[k] = true; sendInput();
+});
+addEventListener('keyup', e => { const k = KEYMAP[e.code]; if (!k) return; e.preventDefault(); keys[k] = false; sendInput(); });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; sendInput(); });
+renderer.domElement.addEventListener('pointerdown', e => { dragging = true; renderer.domElement.setPointerCapture(e.pointerId); audio(); startMusic(); });
+renderer.domElement.addEventListener('pointerup', () => dragging = false);
+renderer.domElement.addEventListener('pointermove', e => { if (dragging){ yaw -= e.movementX * 0.005 * settings.sens; } });
+renderer.domElement.addEventListener('wheel', e => { camDist = Math.max(6, Math.min(22, camDist + e.deltaY*0.01)); }, {passive:true});
+setInterval(() => { if (keys.up||keys.down||keys.left||keys.right) sendInput(); }, 100); // keep yaw fresh while moving
+
+// ---------- screens ----------
+let night = 1, total = (() => { try { return +sessionStorage.getItem('ddl-total') || 0; } catch { return 0; } })(), resultShown = false;
+const show = id => {
+  for (const s of document.querySelectorAll('.screen')) s.classList.toggle('show', s.id === id);
+  $('hud').style.visibility = (id === null || id === 'pause' || id === 'result') ? 'visible' : 'hidden';
+};
+show('menu');
+function openIntro(n){
+  night = n; screenMode = 'intro'; show('intro');
+  $('introNight').textContent = 'ĐÊM ' + n; $('introName').textContent = NIGHTS[n].name; $('introQuote').textContent = NIGHTS[n].quote;
+  buildWorld(n);
+}
+async function startNight(){
+  await api('/api/reset', {night}); lastSent = ''; resultShown = false; prev = null;
+  yaw = 0; screenMode = 'play'; show(null); sendInput(true);
+}
+function togglePause(){
+  keys.pause = true; sendInput(true); setTimeout(() => { keys.pause = false; sendInput(true); }, 60);
+}
+document.querySelectorAll('#menu [data-night]').forEach(b => b.onclick = () => { audio(); startMusic(); if (+b.dataset.night === 1) { total = 0; } openIntro(+b.dataset.night); });
+$('introGo').onclick = startNight;
+$('pResume').onclick = togglePause;
+$('pRestart').onclick = () => { openIntro(night); };
+$('pMenu').onclick = () => { screenMode = 'menu'; show('menu'); };
+let settingsFrom = 'menu';
+$('menuSettings').onclick = () => { settingsFrom = 'menu'; show('settings'); };
+$('pSettings').onclick = () => { settingsFrom = 'pause'; show('settings'); };
+$('sVol').value = settings.vol; $('sSens').value = settings.sens;
+$('sVol').oninput = e => { settings.vol = +e.target.value; if (master) master.gain.value = settings.vol; saveSettings(); };
+$('sSens').oninput = e => { settings.sens = +e.target.value; saveSettings(); };
+$('sBack').onclick = () => show(settingsFrom);
+$('resNext').onclick = () => { if (night < 3) openIntro(night + 1); else { screenMode = 'menu'; show('menu'); } };
+$('resRetry').onclick = () => openIntro(night);
+$('resMenu').onclick = () => { screenMode = 'menu'; show('menu'); };
+
+// ---------- HUD ----------
+const flameSvg = '<svg class="flame" viewBox="0 0 26 34"><path d="M13 2C16 9 23 13 23 22a10 10 0 0 1-20 0c0-6 4-8 5-13 2 3 2 6 5 7 1-5-2-9 0-14z" fill="#FFB347"/><path d="M13 16c2 3 5 5 5 9a5 5 0 0 1-10 0c0-3 3-5 5-9z" fill="#FFE9B0"/></svg>';
+$('bar').innerHTML = Array.from({length:10}, () => '<div class="slot"></div>').join('');
+const slots = [...$('bar').children];
+const fmt = s => { s = Math.max(0, Math.ceil(s)); return String(Math.floor(s/60)).padStart(2,'0') + ':' + String(s%60).padStart(2,'0'); };
+const cdStyle = (el, frac) => { el.querySelector('i').style.background = frac > 0 ? `conic-gradient(rgba(14,20,48,.85) ${frac*360}deg, rgba(255,179,71,.35) 0)` : 'rgba(255,179,71,.35)'; };
+
+// ---------- state polling ----------
+let state = null, prev = null;
+async function poll(){
+  try { const r = await api('/api/state'); state = await r.json(); $('loading').style.display = 'none'; onState(); }
+  catch { $('loading').style.display = 'grid'; $('loading').textContent = 'Không kết nối được server. Chạy: python server_preview.py'; }
+  setTimeout(poll, 25);
+}
+function onState(){
+  const s = state, p = s.player;
+  sync('mote', s.motes || []); sync('lantern', s.lanterns || []); sync('shade', s.shades || []);
+  sync('drifter', s.drifters || []); sync('charm', (s.charms || []).map((c, i) => ({...c, pos: c.pos || charmPos(s.night, i)})));
+  if (screenMode === 'play' || screenMode === 'pause'){
+    if (prev){
+      const pp = prev.player, litNow = s.lanterns.filter(l => l.lit).length, litPrev = prev.lanterns.filter(l => l.lit).length;
+      if (p.carried > pp.carried) sfx.pick();
+      if (litNow > litPrev) sfx.lit();
+      if (p.pulse_cd_s > pp.pulse_cd_s + 1) { sfx.pulse(); pulseRing(player.position); }
+      if (p.dash_cd_s > pp.dash_cd_s + .5) sfx.dash();
+      if (p.flames < pp.flames) { sfx.hit(); $('flash').style.opacity = 1; setTimeout(() => $('flash').style.opacity = 0, 250); }
+      if (!p.grounded && pp.grounded && p.vel[1] > 0) sfx.jump();
+      if ((s.shades||[]).length > (prev.shades||[]).length) sfx.spawn();
+      if (s.time_left_s <= 10 && Math.ceil(s.time_left_s) !== Math.ceil(prev.time_left_s)) sfx.tick();
+    }
+    if (s.state === 'paused' && screenMode === 'play'){ screenMode = 'pause'; show('pause'); }
+    if (s.state === 'playing' && screenMode === 'pause'){ screenMode = 'play'; show(null); }
+    if ((s.state === 'won' || s.state === 'lost') && !resultShown) showResult(s);
+  }
+  prev = s;
+  // HUD
+  $('flames').innerHTML = Array.from({length:3}, (_, i) => flameSvg.replace('class="flame"', `class="flame${i < p.flames ? '' : ' off'}"`)).join('');
+  $('timer').textContent = fmt(s.time_left_s); $('timer').classList.toggle('low', s.time_left_s <= 30);
+  const lit = s.lanterns.filter(l => l.lit).length; $('lit').textContent = `${lit}/${s.lanterns.length}`; $('score').textContent = s.score;
+  $('night').textContent = `Đêm ${s.night} · ${NIGHTS[s.night].name}`;
+  slots.forEach((el, i) => el.classList.toggle('on', i < p.carried));
+  cdStyle($('cdDash'), Math.min(1, p.dash_cd_s / 1.5)); cdStyle($('cdPulse'), Math.min(1, p.pulse_cd_s / 3));
+  $('banner').style.display = s.wind && s.wind.active ? 'block' : 'none';
+  // interact prompt: nearest unlit lantern within 2 m
+  let near = null, nd = 1e9;
+  for (const l of s.lanterns){ if (l.lit) continue; const d = Math.hypot(l.pos[0]-p.pos[0], l.pos[2]-p.pos[2]); if (d < nd){ nd = d; near = l; } }
+  $('prompt').style.display = near && nd <= 2 && screenMode === 'play' ? 'block' : 'none';
+  if (near) $('promptText').textContent = `Nạp ánh sáng (${near.deposited}/10)`;
+  arrowTarget = near;
+  // ambient light rises with progress
+  const k = 0.15 + 0.55 * (lit / s.lanterns.length);
+  hemi.intensity = 0.6 + k * 1.6; moon.intensity = 0.5 + k * 1.0;
+}
+function charmPos(n, i){ return n === 2 ? [35,0,0] : [[30,0,25],[-30,0,25]][i] || [0,0,0]; }
+function showResult(s){
+  resultShown = true; screenMode = 'result';
+  const won = s.state === 'won';
+  if (won){ total += s.score; try { sessionStorage.setItem('ddl-total', total); } catch {} sfx.win(); } else sfx.lose();
+  $('resTitle').textContent = won ? (night === 3 ? '☀ Bình Minh ☀' : 'Đảo đã sáng!') : 'Sương đen đã thắng…';
+  $('resText').innerHTML = won ? `Điểm Đêm ${night}: <b>${s.score}</b><br>Tổng điểm: <b>${total}</b>` : `Điểm Đêm ${night}: <b>${s.score}</b>. Thử lại nhé, Mây!`;
+  $('resNext').style.display = won ? '' : 'none';
+  $('resNext').textContent = night < 3 ? 'Đêm kế tiếp' : 'Về menu';
+  setTimeout(() => show('result'), 900);
+}
+let arrowTarget = null;
+
+// ---------- render loop ----------
+const clock = new THREE.Clock(), tmp = new THREE.Vector3();
+function lerpTo(o, x, y, z, k){ o.position.x += (x - o.position.x)*k; o.position.y += (y - o.position.y)*k; o.position.z += (z - o.position.z)*k; }
+function frame(){
+  requestAnimationFrame(frame);
+  const dt = Math.min(clock.getDelta(), .05), t = clock.elapsedTime, k = 1 - Math.exp(-dt*18);
+  if (keys.rotL) yaw += dt * 1.8 * settings.sens; if (keys.rotR) yaw -= dt * 1.8 * settings.sens;
+  if (state){
+    const p = state.player;
+    lerpTo(player, p.pos[0], p.pos[1], p.pos[2], k);
+    const v = p.vel; if (Math.hypot(v[0], v[2]) > .3){ const target = Math.atan2(v[0], v[2]); let d = target - player.rotation.y; d = Math.atan2(Math.sin(d), Math.cos(d)); player.rotation.y += d * Math.min(1, dt*12); }
+    player.children[0].position.y = 0.75 + (p.grounded ? Math.abs(Math.sin(t*10))*0.04*Math.min(1, Math.hypot(v[0], v[2])/6) : 0);
+    player.visible = !(p.invuln > 0 && Math.floor(t*12) % 2);
+    for (const o of pools.mote.values()){ const d = o.userData.data; lerpTo(o, d.pos[0], d.pos[1] + 0.6 + Math.sin(t*3 + o.userData.phase)*0.15, d.pos[2], k); }
+    for (const o of pools.lantern.values()){
+      const d = o.userData.data, u = o.userData; o.position.set(d.pos[0], d.pos[1], d.pos[2]);
+      u.paper.material.color.set(d.lit ? C.lampCore : C.lampOff); u.paper.material.emissive.set(d.lit ? C.lampOn : 0x000000);
+      u.paper.material.emissiveIntensity = d.lit ? 1.6 + Math.sin(t*3)*0.2 : 0;
+      u.light.intensity = d.lit ? 40 + Math.sin(t*4)*4 : (d.deposited ? d.deposited*1.2 : 0); u.halo.visible = d.lit || d.deposited > 0;
+      u.halo.material.opacity = d.lit ? 1 : d.deposited/14; u.ring.visible = d.lit; u.ring.material.opacity = .18 + Math.sin(t*2)*.06;
+      u.paper.scale.y = d.lit ? 1 : 0.8; // unlit lanterns sag slightly: readable without colour
+    }
+    for (const o of pools.shade.values()){
+      const d = o.userData.data, u = o.userData; lerpTo(o, d.pos[0], (d.pos[1] || 0) + 1.1 + Math.sin(t*2 + u.phase)*0.15, d.pos[2], k);
+      const stun = d.state === 'stunned', spawn = d.state === 'spawning';
+      u.bodyMat.color.set(stun ? C.shadeStun : C.shade); u.eyeM.color.set(stun ? 0x9a94b0 : C.shadeRim);
+      u.rim.material.opacity = spawn ? .12 + Math.sin(t*10)*.08 : (d.state === 'chase' ? .45 : .28);
+      o.scale.setScalar(spawn ? 0.6 + 0.4*Math.abs(Math.sin(t*3)) : 1);
+      o.lookAt(player.position.x, o.position.y, player.position.z);
+      u.tails.forEach((tl, i) => tl.rotation.z = Math.sin(t*5 + i)*0.3);
+    }
+    for (const o of pools.drifter.values()){
+      const d = o.userData.data; lerpTo(o, d.pos[0], 1.6 + Math.sin(t*4)*0.3, d.pos[2], k);
+      const pos = o.userData.ribbon.geometry.attributes.position; for (let i=0;i<pos.count;i++){ const x = pos.getX(i); pos.setZ(i, Math.sin(x*3 + t*8)*0.25); } pos.needsUpdate = true;
+      o.rotation.y = t*1.5; o.visible = d.state !== 'removed';
+    }
+    for (const o of pools.charm.values()){ const d = o.userData.data; o.visible = d.available !== false; o.position.set(d.pos[0], d.pos[1] + 1 + Math.sin(t*2)*0.2, d.pos[2]); o.rotation.y = t*1.5; }
+  }
+  for (let i = fx.length-1; i >= 0; i--){ const f = fx[i]; f.t += dt; f.m.scale.setScalar(1 + f.t*14); f.m.material.opacity = Math.max(0, .9 - f.t*2); if (f.t > .45){ scene.remove(f.m); fx.splice(i,1); } }
+  // third-person camera: behind the player along the yaw direction
+  const fwdX = Math.sin(yaw), fwdZ = Math.cos(yaw);
+  const want = tmp.set(player.position.x - fwdX*camDist, player.position.y + camDist*0.62, player.position.z - fwdZ*camDist);
+  camera.position.lerp(want, 1 - Math.exp(-dt*6));
+  camera.lookAt(player.position.x + fwdX*2, player.position.y + 1.2, player.position.z + fwdZ*2);
+  moon.position.set(player.position.x - 30, 50, player.position.z + 20); moon.target.position.copy(player.position);
+  // off-screen arrow to nearest unlit lantern
+  const arrow = $('arrow');
+  if (arrowTarget && screenMode === 'play'){
+    const v = new THREE.Vector3(arrowTarget.pos[0], arrowTarget.pos[1] + 2, arrowTarget.pos[2]).project(camera);
+    const off = v.z > 1 || Math.abs(v.x) > 0.95 || Math.abs(v.y) > 0.9;
+    if (off){
+      let x = v.x, y = v.y; if (v.z > 1){ x = -x; y = -y; }
+      const a = Math.atan2(y, x), r = 0.85; const sx = (Math.cos(a)*r*0.5 + 0.5)*innerWidth, sy = (-Math.sin(a)*r*0.5 + 0.5)*innerHeight;
+      arrow.style.display = 'block'; arrow.style.left = (sx - 22) + 'px'; arrow.style.top = (sy - 22) + 'px'; arrow.style.transform = `rotate(${Math.PI/2 - a}rad)`;
+    } else arrow.style.display = 'none';
+  } else arrow.style.display = 'none';
+  renderer.render(scene, camera);
+}
+buildWorld(1); poll(); frame();
+</script>
+</body>
+</html>
