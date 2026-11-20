@@ -14,11 +14,11 @@ def main():
     p.add_argument('--out', default='-')
     p.add_argument('--snapshot-every', type=int, default=10)
     a = p.parse_args()
-    if a.night != 1 or a.ticks < 0 or a.snapshot_every < 1:
+    if a.night not in (1, 2, 3) or a.ticks < 0 or a.snapshot_every < 1:
         print('invalid night, ticks, or snapshot interval', file=sys.stderr); return 2
     if a.headless:
         try:
-            lines = run_headless(a.seed, a.ticks, a.snapshot_every, a.scenario, a.inputs)
+            lines = run_headless(a.seed, a.ticks, a.snapshot_every, a.scenario, a.inputs, a.night)
             if a.out == '-':
                 print('\n'.join(lines))
             else:
@@ -29,4 +29,4 @@ def main():
     from visual import launch
     launch()
 
-if __name__ == '__main__': main()
+if __name__ == '__main__': sys.exit(main())

@@ -1,101 +1,205 @@
 import json, math, random
 
-SPEED=6.0; CAP=5; COST=5; PICKUP=1.4; INTERACT=2.0; PULSE_COST=1
-PULSE_RADIUS=6.0; DURATION=300; INVULN=90; STUN=120; PUSH=2.0
-SHADE_SPEED=2.0; HIT=1.0; SAFE=3.0
-
+SPEED=6.; CAP=10; COST=10; PICKUP=1.; INTERACT=2.; PULSE_COST=3; PULSE_RADIUS=5.; INVULN=90; STUN=120; SHADE_SPEED=4.; HIT=1.; SAFE=6.; FALL_ENABLED=False
+DURATIONS={1:300,2:330,3:360}; DASH_SPEED=14.; DASH_TICKS=12; DASH_CD=90
+LANTERNS={1:[[0,0,25],[23.8,0,7.7],[14.7,0,-20.2],[-14.7,0,-20.2],[-23.8,0,7.7]],2:[[0,0,20],[17,0,-10],[-17,0,-10],[70,0,20],[87,0,-10],[53,0,-10]],3:[[0,6,6],[18,3,10],[-18,3,10],[35,0,-10],[-35,0,-10],[20,0,-35],[-20,0,-35]]}
 def dist(a,b): return math.hypot(a[0]-b[0],a[2]-b[2])
-def load_json(path, default):
-    if not path: return default
-    with open(path,encoding='utf-8') as f: return json.load(f)
-
+def load_json(path,default):
+    if not path:return default
+    with open(path,encoding='utf-8') as f:return json.load(f)
 class Game:
-    def __init__(self, seed=1, scenario=None):
-        self.rng=random.Random(seed); self.tick=0; self.time=300*60; self.score=0
-        self.state='playing'; self.flames=3; self.carried=0; self.invuln=0; self.last_pulse=-9999
-        self.player=[0.,0.,0.]; self.input={'move':[0,0],'cam_yaw_deg':0,'jump':False,'interact':False,'pulse':False}
-        self.prev={k:False for k in ('jump','interact','pulse')}; self.events=[]
-        self.lanterns=[{'id':f'L{i+1}','pos':[20*math.cos(i*2*math.pi/5),0,20*math.sin(i*2*math.pi/5)],'lit':False,'deposited':0} for i in range(5)]
-        self.motes=[{'id':f'M{i+1}','pos':[8*math.cos(i*2*math.pi/20),0,8*math.sin(i*2*math.pi/20)]} for i in range(20)]
-        self.shades=[{'id':'S1','pos':[10.,0.,0.],'state':'chase','stun':0}]
-        if scenario:
-            p=scenario.get('player',{}); self.player=list(map(float,p.get('pos',[0,0,0]))); self.carried=int(p.get('carried',0)); self.flames=int(p.get('flames',3))
-            if 'motes' in scenario:self.motes=[{'id':f'M{i+1}','pos':list(map(float,x))} for i,x in enumerate(scenario['motes'])]
-            if 'shades' in scenario:self.shades=[{'id':x.get('id',f'S{i+1}'),'pos':list(map(float,x['pos'])),'state':'chase','stun':0} for i,x in enumerate(scenario['shades'])]
-            for x in scenario.get('lanterns',[]):
-                l=next((l for l in self.lanterns if l['id']==x.get('id')),None)
-                if l:
-                    l['pos']=list(map(float,x.get('pos',l['pos']))); l['deposited']=int(x.get('deposited',l['deposited'])); l['lit']=bool(x.get('lit',l['deposited']>=COST))
-            self.time=int(float(scenario.get('time_left_s',300))*60)
-            if scenario.get('random_motes',True): self.motes += [{'id':f'R{i}','pos':[self.rng.uniform(-18,18),0,self.rng.uniform(-18,18)]} for i in range(20)]
-            if scenario.get('random_shades',True): pass
-    def event(self,n,d): self.events.append({'type':'event','tick':self.tick,'name':n,'data':d})
+    def __init__(self,seed=1,night=1,scenario=None):
+        self.rng=random.Random(seed);self.seed=seed;self.night=night;self.tick=0;self.sim_tick=0;self.time=DURATIONS[night]*60;self.score=0;self.state='playing';self.flames=3;self.carried=0;self.player=[0.,0.,0.];self.invuln=0;self.dash_cd=0;self.pulse_cd=0;self.dash_left=0;self.pulse_push={};self.face=[0.,1.];self.vel=[0.,0.,0.];self.grounded=True;self.charm=0;self.pause=False;self.prev={x:False for x in ('jump','dash','pulse','interact','pause')};self.input={'move':[0,0],'cam_yaw_deg':0,'jump':False,'dash':False,'pulse':False,'interact':False,'pause':False};self.events=[];self.killscore=set();self.return_ticks=0;self.wind={'active':False,'dir_deg':0};self.wind_timer=0
+        self.lanterns=[{'id':f'L{i+1}','pos':p,'lit':False,'deposited':0} for i,p in enumerate(LANTERNS[night])]
+        self.spawn_points=self._mote_points();self.shade_points=self._shade_points();self.motes=[self._mote(f'M{i+1}',p) for i,p in enumerate(self.spawn_points[:20])];self.shades=[];self.drifters=[]
+        charm_positions={1:[],2:[[35,0,0]],3:[[30,0,25],[-30,0,25]]}[night];self.charms=[{'id':f'C{i+1}','pos':p,'available':True,'respawn':0} for i,p in enumerate(charm_positions)]
+        self.random_motes=True;self.random_shades=True;self.random_drifters=True;self.wind_enabled=night==3;self.shade_spawn=300;self.drifter_spawn=1200
+        if scenario:self._scenario(scenario)
+    def _mote_points(self):
+        if self.night==1:return [[r*math.cos(math.radians(a)),0,r*math.sin(math.radians(a))] for r,angles in ((12,range(0,360,45)),(33,[i*22.5 for i in range(16)])) for a in angles]
+        if self.night==2:return [[cx+r*math.cos(math.radians(a)),0,r*math.sin(math.radians(a))] for cx in (0,70) for r,angles in ((10,(0,90,180,270)),(22,range(0,360,45))) for a in angles]
+        return [[34*math.cos(math.radians(a)),0,34*math.sin(math.radians(a))] for a in range(0,360,20)]+[[18*math.cos(math.radians(a)),3,18*math.sin(math.radians(a))] for a in range(20,180,20)]+[[5*math.cos(math.radians(a)),6,5*math.sin(math.radians(a))] for a in (45,135,225,315)]
+    def _shade_points(self):
+        if self.night==2:return [[cx+r*math.cos(math.radians(a)),0,r*math.sin(math.radians(a))] for cx in (0,70) for r,angles in ((26,range(22,360,45)),) for a in angles]
+        r=43 if self.night==3 else 37;angles=[i*22.5 for i in range(16)] if self.night==3 else range(0,360,30)
+        return [[r*math.cos(math.radians(a)),0,r*math.sin(math.radians(a))] for a in angles]
+    def _mote(self,id,pos,kind='random',ttl=0):return {'id':id,'pos':list(pos),'kind':kind,'ttl':ttl}
+    def _scenario(self,sc):
+        p=sc.get('player',{});self.player=list(map(float,p.get('pos',[0,0,0])));self.carried=int(p.get('carried',0));self.flames=int(p.get('flames',3));self.invuln=int(p.get('invuln_ticks',0));self.dash_cd=int(p.get('dash_cd_ticks',0));self.pulse_cd=int(p.get('pulse_cd_ticks',0));self.charm=int(p.get('charm_ticks',0))
+        self.random_motes=sc.get('random_motes',True);self.random_shades=sc.get('random_shades',True);self.random_drifters=sc.get('random_drifters',True);self.wind_enabled=sc.get('wind_enabled',self.wind_enabled)
+        if 'motes' in sc:self.motes=[self._mote(f'M{i+1}',x) for i,x in enumerate(sc['motes'])]
+        if 'shades' in sc:self.shades=[{'id':x.get('id',f'S{i+1}'),'pos':list(map(float,x['pos'])),'state':x.get('state','wander'),'state_ticks':x.get('state_ticks_left',0),'recoil':[0,0,0]} for i,x in enumerate(sc['shades'])]
+        if 'drifters' in sc:self.drifters=[{'id':x.get('id',f'D{i+1}'),'pos':list(map(float,x['pos'])),'state':x.get('state','idle'),'stolen':x.get('stolen',0),'ticks':0} for i,x in enumerate(sc['drifters'])]
+        if 'charms' in sc:self.charms=[{'id':x.get('id',f'C{i+1}'),'pos':list(map(float,x.get('pos',[0,0,0]))),'available':x.get('available',True),'respawn':x.get('respawn_ticks',0)} for i,x in enumerate(sc['charms'])]
+        for x in sc.get('lanterns',[]):
+            l=next((a for a in self.lanterns if a['id']==x.get('id')),None)
+            if l:l['pos']=x.get('pos',l['pos']);l['lit']=x.get('lit',False);l['deposited']=x.get('deposited',COST if l['lit'] else 0)
+        self.time=int(sc.get('time_left_s',DURATIONS[self.night])*60)
+    def event(self,name,data):self.events.append({'type':'event','tick':self.tick,'name':name,'data':data})
+    def spawn_shades(self,count):
+        free=[p for p in self.shade_points if dist(p,self.player)>=15 and not any(dist(p,s['pos'])<3 for s in self.shades)]
+        for _ in range(min(count,6-len(self.shades),len(free))):
+            pos=free.pop(0); sid=f'S{len(self.shades)+1}';self.shades.append({'id':sid,'pos':pos[:],'state':'spawning','state_ticks':30,'recoil':[0,0,0]});self.event('shade_spawned',{'id':sid})
     def step(self):
-        if self.state!='playing': return
-        k=self.tick; self.tick+=1; self.time-=1
-        inp=self.input; x,z=inp['move']; mag=math.hypot(x,z)
-        if mag>1:x,z=x/mag,z/mag
-        th=math.radians(inp['cam_yaw_deg']); dx=x*math.cos(th)+z*math.sin(th); dz=-x*math.sin(th)+z*math.cos(th)
-        self.player[0]+=dx*SPEED/60; self.player[2]+=dz*SPEED/60
-        for key in self.prev:
-            pressed=inp[key] and not self.prev[key]; self.prev[key]=inp[key]
-            if pressed and key=='pulse' and self.carried>=PULSE_COST and k-self.last_pulse>=60:
-                self.carried-=PULSE_COST; self.last_pulse=k; ids=[]
-                for s in self.shades:
-                    if dist(s['pos'],self.player)<=PULSE_RADIUS:
-                        s['state']='stunned'; s['stun']=STUN; ids.append(s['id']); self.score+=25
-                        vx=s['pos'][0]-self.player[0]; vz=s['pos'][2]-self.player[2]; d=math.hypot(vx,vz) or 1; s['pos'][0]+=vx/d*PUSH; s['pos'][2]+=vz/d*PUSH
-                self.event('pulse',{'stunned_ids':ids})
-            if pressed and key=='interact':
-                for l in self.lanterns:
-                    if dist(l['pos'],self.player)<=INTERACT and self.carried:
-                        amount=min(self.carried,COST-l['deposited']); l['deposited']+=amount; self.carried-=amount; self.score+=amount*10
-                        self.event('deposit',{'lantern_id':l['id'],'amount':amount,'deposited':l['deposited']})
-                        if l['deposited']>=COST and not l['lit']:
-                            l['lit']=True; self.score+=100; self.event('lantern_lit',{'lantern_id':l['id']})
-                        break
-        for m in self.motes[:]:
-            if self.carried<CAP and dist(m['pos'],self.player)<=PICKUP:
-                self.motes.remove(m); self.carried+=1; self.score+=10; self.event('mote_picked',{'carried':self.carried})
+        if self.state not in ('playing','paused'):return
+        k=self.tick;self.tick+=1
+        pause_pressed=self.input.get('pause',False) and not self.prev['pause'];self.prev['pause']=self.input.get('pause',False)
+        if pause_pressed:self.state='playing' if self.state=='paused' else 'paused';self.event('resumed' if self.state=='playing' else 'paused',{'night':self.night})
+        if self.state=='paused':return
+        self.sim_tick+=1;self.time-=1
+        self.invuln=max(0,self.invuln-1);self.dash_cd=max(0,self.dash_cd-1);self.pulse_cd=max(0,self.pulse_cd-1);self.charm=max(0,self.charm-1)
         for s in self.shades:
-            if s['stun']>0:s['stun']-=1
-            else:
-                s['state']='chase'; nearest=min(self.lanterns,key=lambda l:dist(l['pos'],s['pos']))
-                target=self.player if dist(s['pos'],self.player)<dist(nearest['pos'],self.player) else self.player
-                d=dist(s['pos'],target)
-                if d>0:s['pos'][0]+=(target[0]-s['pos'][0])/d*SHADE_SPEED/60; s['pos'][2]+=(target[2]-s['pos'][2])/d*SHADE_SPEED/60
-                if self.invuln==0 and d<=HIT:
-                    self.flames-=1; dropped=self.carried//2; self.carried-=dropped; self.invuln=90
-                    self.event('player_hit',{'by':'shade','flames':self.flames,'dropped':dropped})
-                    for i in range(dropped): self.motes.append({'id':f'D{self.tick}-{i}','pos':self.player.copy()})
-        self.invuln=max(0,self.invuln-1)
+            if s['state_ticks']>0:s['state_ticks']-=1
+            if s['state']=='stunned' and s['state_ticks']==0:s['state']='chase'
+            if s['state']=='spawning' and s['state_ticks']==0:s['state']='wander'
+        for m in self.motes[:]:
+            if m['ttl']>0:m['ttl']-=1
+            if m['ttl']==0 and m['kind']=='dropped':self.motes.remove(m)
+        self._move_player()
+        if FALL_ENABLED and self.player[1]<-10:
+            self.flames-=1;lost=self.carried;self.carried=0;self.event('player_hit',{'by':'fall','flames':self.flames,'dropped':0,'lost':lost});self.player=[0.,0.,0.];self.vel=[0.,0.,0.];self.invuln=90
+            if self.flames<=0:self.finish('lost','no_flames');return
+        elif not FALL_ENABLED and self.player[1]<-10:
+            self.player=[0.,0.,0.];self.vel=[0.,0.,0.]
+        self._pickup();self._interact();self._safe_zones();self._pulse();self._move_enemies();self._collisions();self._spawns();self._win_check()
+        for name in ('jump','dash','pulse','interact'): self.prev[name]=self.input.get(name,False)
+    def _move_player(self):
+        x,z=self.input.get('move',[0,0]);mag=math.hypot(x,z)
+        if mag>1:x,z=x/mag,z/mag
+        th=math.radians(self.input.get('cam_yaw_deg',0));dx=x*math.cos(th)+z*math.sin(th);dz=-x*math.sin(th)+z*math.cos(th)
+        if math.hypot(dx,dz)>.01:self.face=[dx,dz]
+        if self._pressed('jump') and self.grounded:self.vel[1]=7;self.grounded=False
+        if self._pressed('dash') and self.dash_cd==0:
+            self.dash_left=12;self.dash_cd=0 if self.charm else DASH_CD;self.event('dash',{})
+        if self.dash_left>0:self.vel[0]=self.face[0]*DASH_SPEED;self.vel[2]=self.face[1]*DASH_SPEED;self.dash_left-=1
+        else:self.vel[0]=dx*(7.2 if self.charm else SPEED);self.vel[2]=dz*(7.2 if self.charm else SPEED)
+        self.player[0]+=self.vel[0]/60;self.player[2]+=self.vel[2]/60
+        if not self.grounded:self.vel[1]-=20/60;self.player[1]+=self.vel[1]/60
+        surface=self._surface(self.player[0],self.player[2])
+        if surface is not None and self.player[1]<=surface:self.player[1]=surface;self.vel[1]=0;self.grounded=True
+        if self.night==3 and self.wind_enabled:
+            self.wind_timer=(self.wind_timer+1)%2100;active=self.wind_timer>=1500;self.wind={'active':active,'dir_deg':self.wind.get('dir_deg',0)}
+            if self.wind_timer==1380:self.wind['dir_deg']=self.rng.randrange(360)
+            if active:self.player[0]+=math.cos(math.radians(self.wind['dir_deg']))*2/60;self.player[2]+=math.sin(math.radians(self.wind['dir_deg']))*2/60
+    def _surface(self,x,z):
+        if self.night==1:return 0 if math.hypot(x,z)<=40 else None
+        if self.night==2:return 0 if math.hypot(x,z)<=28 or math.hypot(x-70,z)<=28 or (26<=x<=44 and abs(z)<=2) else None
+        r=math.hypot(x,z)
+        if r<=8:return 6
+        if 12<=r<=24 and z>0:return 3
+        return 0 if r<=45 else None
+    def _pressed(self,key):return self.input.get(key,False) and not self.prev[key]
+    def _pickup(self):
+        for m in self.motes[:]:
+            if self.carried<CAP and dist(m['pos'],self.player)<=PICKUP and abs(m['pos'][1]-self.player[1])<=1.5:
+                self.motes.remove(m);self.carried+=1;self.score+=10;self.event('mote_picked',{'carried':self.carried})
+        for c in self.charms:
+            if c['available'] and dist(c['pos'],self.player)<=PICKUP and abs(c['pos'][1]-self.player[1])<=1.5:c['available']=False;c['respawn']=2700;self.charm=600;self.event('charm_picked',{'charm_id':c['id'],'charm_ticks':600})
+    def _interact(self):
+        if not self._pressed('interact') or not self.carried:return
+        choices=sorted((dist(l['pos'],self.player),l['id'],l) for l in self.lanterns if not l['lit'] and dist(l['pos'],self.player)<=INTERACT)
+        if choices:
+            l=choices[0][2];n=min(self.carried,COST-l['deposited']);self.carried-=n;l['deposited']+=n;self.score+=n*10
+            self.event('deposit',{'lantern_id':l['id'],'amount':n,'deposited':l['deposited']})
+            if l['deposited']>=COST:l['lit']=True;self.score+=100;self.event('lantern_lit',{'lantern_id':l['id']})
+    def _safe_zones(self):
+        for s in self.shades:
+            if s['state'] in ('stunned','spawning'):continue
+            for l in self.lanterns:
+                d=dist(s['pos'],l['pos'])
+                if l['lit'] and d<SAFE:
+                    dx=s['pos'][0]-l['pos'][0];dz=s['pos'][2]-l['pos'][2];d=d or 1;s['pos'][0]=l['pos'][0]+dx/d*SAFE;s['pos'][2]=l['pos'][2]+dz/d*SAFE
+    def _pulse(self):
+        if self._pressed('pulse') and self.carried>=3 and self.pulse_cd==0:
+            self.carried-=3;self.pulse_cd=180;ids=[]
+            for s in sorted(self.shades,key=lambda a:a['id']):
+                if math.dist(self.player,[s['pos'][0],s['pos'][1]-.8,s['pos'][2]])<=PULSE_RADIUS:
+                    s['state']='stunned';s['state_ticks']=STUN;ids.append(s['id'])
+                    self.score+=5
+                    dx=s['pos'][0]-self.player[0];dz=s['pos'][2]-self.player[2];d=math.hypot(dx,dz) or 1;self.pulse_push[s['id']]=[dx/d*4/15,dz/d*4/15,15]
+            for d in self.drifters:
+                if dist(d['pos'],self.player)<=PULSE_RADIUS and d['state']=='chase':d['state']='flee';d['ticks']=240
+                elif dist(d['pos'],self.player)<=PULSE_RADIUS and d['state']=='flee' and d['stolen']:
+                    self.motes.extend(self._mote(f'R{self.sim_tick}-{i}',d['pos'],'dropped',480) for i in range(d['stolen']));self.event('drifter_drop',{'drifter_id':d['id'],'amount':d['stolen']});d['stolen']=0;d['state']='removed';d['ticks']=120
+            self.event('pulse',{'stunned_ids':ids})
+    def _move_enemies(self):
+        for s in self.shades:
+            if s['state'] in ('stunned','spawning'):continue
+            dx=self.player[0]-s['pos'][0];dz=self.player[2]-s['pos'][2];d=math.hypot(dx,dz);speed=SHADE_SPEED
+            if s['state']=='recoil':
+                s['pos'][0]+=s['recoil'][0]/60;s['pos'][2]+=s['recoil'][2]/60;s['state_ticks']-=1
+                if s['state_ticks']<=0:s['state']='chase'
+            elif d<=12 or (s['state']=='chase' and d<=18):
+                s['state']='chase'
+                if d:s['pos'][0]+=dx/d*speed/60;s['pos'][2]+=dz/d*speed/60
+            else:s['state']='wander'
+        for d in self.drifters:
+            if d['state']=='removed':d['ticks']-=1;continue
+            near=dist(d['pos'],self.player)
+            if d['state']=='idle':
+                if near<=15 and self.carried>=5:d['state']='chase'
+                else:d['pos'][0]+=math.sin(self.sim_tick/30)*2/60
+            if d['state']=='chase' and near:d['pos'][0]+=(self.player[0]-d['pos'][0])/near*7/60;d['pos'][2]+=(self.player[2]-d['pos'][2])/near*7/60
+            if d['state']=='flee':
+                d['ticks']-=1
+                if near:d['pos'][0]+=(d['pos'][0]-self.player[0])/near*7/60;d['pos'][2]+=(d['pos'][2]-self.player[2])/near*7/60
+                if d['ticks']<=0:d['state']='removed'
+    def _collisions(self):
+        for d in self.drifters:
+            if d['state']=='chase' and dist(d['pos'],self.player)<=1.2:
+                amount=min(3,self.carried);self.carried-=amount;d['stolen']=amount;d['state']='flee';d['ticks']=240;self.event('drifter_steal',{'drifter_id':d['id'],'amount':amount,'carried':self.carried})
+        if self.return_ticks>0:self.return_ticks-=1;return
+        if self.invuln:return
+        for s in sorted(self.shades,key=lambda a:a['id']):
+            if s['state'] in ('stunned','spawning'):continue
+            if dist(s['pos'],self.player)<=HIT and abs(s['pos'][1]-self.player[1])<=1.5:
+                self.flames-=1;dropped=self.carried//2;self.carried-=dropped;self.invuln=90;s['state']='recoil';s['state_ticks']=60;dx=s['pos'][0]-self.player[0];dz=s['pos'][2]-self.player[2];d=math.hypot(dx,dz) or 1;s['recoil']=[dx/d*2,dz/d*2,0]
+                for i in range(dropped):a=self.rng.random()*math.tau;r=self.rng.uniform(1.5,2.5);self.motes.append(self._mote(f'R{self.sim_tick}-{i}',[self.player[0]+math.cos(a)*r,self.player[1],self.player[2]+math.sin(a)*r],'dropped',480))
+                self.event('player_hit',{'by':'shade','flames':self.flames,'dropped':dropped})
+                if self.flames<=0:self.finish('lost','no_flames')
+                break
+    def _spawns(self):
+        if self.sim_tick%240==0 and len(self.motes)<30:
+            free=[p for p in self.spawn_points if not any(dist(p,m['pos'])<1 for m in self.motes)]
+            if free:self.motes.append(self._mote(f'R{self.sim_tick}',self.rng.choice(free)))
+        interval={1:480,2:420,3:360}[self.night]
+        if self.sim_tick>=300 and (self.sim_tick-300)%interval==0 and len(self.shades)<({1:6,2:8,3:10}[self.night]):self.spawn_shades(2 if self.sim_tick==300 else 1)
+        if self.night in (2,3) and self.sim_tick%1200==0 and len([d for d in self.drifters if d['state']!='removed'])<2:
+            ident=f'D{sum(1 for d in self.drifters)+1}';pos=self._free_point();self.drifters.append({'id':ident,'pos':pos,'state':'idle','stolen':0,'ticks':0});self.event('drifter_spawned',{'id':ident})
+        for c in self.charms:
+            if not c['available'] and c['respawn']>0:c['respawn']-=1
+            if not c['available'] and c['respawn']==0:c['available']=True
+    def _free_point(self):
+        candidates=self.shade_points
+        return self.rng.choice(candidates) if candidates else [0,0,0]
+    def _win_check(self):
         if self.flames<=0:self.finish('lost','no_flames')
-        elif self.time<=0:self.finish('lost','dawn')
         elif all(l['lit'] for l in self.lanterns):self.finish('won','all_lit')
+        elif self.time<=0:self.finish('lost','dawn')
     def finish(self,state,reason):
-        self.state=state; self.score+=max(0,self.time//60)+self.flames*50; self.event('game_over',{'result':state,'reason':reason})
+        if self.state!='playing':return
+        self.state=state
+        if state=='won':self.score+=max(0,self.time//60)*2+50*self.flames
+        self.event('game_over',{'result':state,'reason':reason})
     def snapshot(self):
-        return {'type':'snapshot','tick':self.tick,'sim_tick':self.tick,'state':self.state,'time_left_s':round(self.time/60,3),'score':self.score,'player':{'pos':[round(v,3) for v in self.player],'flames':self.flames,'carried':self.carried},'lanterns':[{'id':l['id'],'pos':l['pos'],'lit':l['lit'],'deposited':l['deposited']} for l in self.lanterns],'shades':[{'id':s['id'],'pos':[round(v,3) for v in s['pos']],'state':s['state']} for s in self.shades],'motes_active':len(self.motes)}
-
-def run_headless(seed,ticks,every,scenario_path=None,inputs_path=None):
+        return {'type':'snapshot','tick':self.tick,'sim_tick':self.sim_tick,'night':self.night,'state':self.state,'time_left_s':round(self.time/60,3),'score':self.score,'wind':self.wind,'player':{'pos':[round(v,3) for v in self.player],'vel':[round(v,3) for v in self.vel],'grounded':self.grounded,'flames':self.flames,'carried':self.carried,'invuln':self.invuln/60,'dash_cd_s':self.dash_cd/60,'pulse_cd_s':self.pulse_cd/60,'charm_s':self.charm/60},'lanterns':[{'id':l['id'],'pos':l['pos'],'lit':l['lit'],'deposited':l['deposited']} for l in self.lanterns],'shades':[{'id':s['id'],'pos':[round(v,3) for v in s['pos']],'state':s['state']} for s in self.shades],'motes':[{'id':m['id'],'pos':m['pos'],'kind':m['kind'],'ttl_s':round(m['ttl']/60,3)} for m in self.motes],'motes_active':len(self.motes),'drifters':[{'id':d['id'],'pos':d['pos'],'state':d['state'],'stolen':d['stolen']} for d in self.drifters if d['state']!='removed'],'charms':[{'id':c['id'],'available':c['available'],'respawn_s':c['respawn']/60} for c in self.charms]}
+def run_headless(seed,ticks,every,scenario_path=None,inputs_path=None,night=1):
     sc=load_json(scenario_path,{})
-    if not isinstance(sc,dict): raise ValueError('scenario must be an object')
-    data=load_json(inputs_path,{'frames':[]})
-    if not isinstance(data,dict) or not isinstance(data.get('frames',[]),list):raise ValueError('inputs.frames must be an array')
-    frames=data.get('frames',[]); last=-1
+    if not isinstance(sc,dict):raise ValueError('scenario must be an object')
+    data=load_json(inputs_path,{'frames':[]});frames=data.get('frames',[])
+    if not isinstance(frames,list):raise ValueError('inputs.frames must be an array')
+    last=-1
     for f in frames:
         if not isinstance(f,dict) or not isinstance(f.get('tick'),int) or f['tick']<=last:raise ValueError('frame ticks must strictly increase')
         last=f['tick']
         if 'move' in f and (not isinstance(f['move'],list) or len(f['move'])!=2 or any(not isinstance(v,(int,float)) or abs(v)>1 for v in f['move'])):raise ValueError('move must contain two values in [-1,1]')
-        for key in ('jump','interact','pulse'):
+        for key in ('jump','dash','interact','pulse','pause'):
             if key in f and not isinstance(f[key],bool):raise ValueError(f'{key} must be boolean')
-    g=Game(seed,sc); out=[json.dumps(g.snapshot(),separators=(',',':'))]; frame_i=0
+    if night not in (1,2,3):raise ValueError('night must be 1, 2, or 3')
+    g=Game(seed,night,sc);out=[json.dumps(g.snapshot(),separators=(',',':'))];idx=0
     for k in range(ticks):
-        while frame_i<len(frames) and frames[frame_i]['tick']==k:
-            g.input.update(frames[frame_i]); frame_i+=1
-        g.step()
-        out.extend(json.dumps(e,separators=(',',':')) for e in g.events); g.events.clear()
+        while idx<len(frames) and frames[idx]['tick']==k:g.input.update(frames[idx]);idx+=1
+        g.step();out.extend(json.dumps(e,separators=(',',':')) for e in g.events);g.events.clear()
         if g.tick%every==0:out.append(json.dumps(g.snapshot(),separators=(',',':')))
-        if g.state!='playing':break
-    out.append(json.dumps({'type':'end','ticks':g.tick,'state':g.state,'score':g.score},separators=(',',':')))
-    return out
+        if g.state in ('won','lost'):break
+    out.append(json.dumps({'type':'end','ticks':g.tick,'sim_tick':g.sim_tick,'state':g.state,'score':g.score},separators=(',',':')));return out
