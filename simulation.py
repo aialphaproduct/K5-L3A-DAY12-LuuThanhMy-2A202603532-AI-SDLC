@@ -1,6 +1,8 @@
 import json, math, random
 
-SPEED=6.; CAP=10; COST=10; PICKUP=1.; INTERACT=2.; PULSE_COST=3; PULSE_RADIUS=5.; INVULN=90; STUN=120; SHADE_SPEED=4.; HIT=1.; SAFE=6.; FALL_ENABLED=False
+SPEED=6.; CAP=10; COST=10; PICKUP=1.; INTERACT=2.; PULSE_COST=3; PULSE_RADIUS=5.; INVULN=90; STUN=120; SHADE_SPEED=4.; HIT=1.; SAFE=6.; FALL_ENABLED=True
+SHADE_CAP={1:6,2:8,3:10}
+PADS={2:[((20,0,18),14.,24.,(70,0)),((50,0,-18),14.,24.,(0,0))],3:[((0,3,13),12.,8.,None)]}
 DURATIONS={1:300,2:330,3:360}; DASH_SPEED=14.; DASH_TICKS=12; DASH_CD=90
 LANTERNS={1:[[0,0,25],[23.8,0,7.7],[14.7,0,-20.2],[-14.7,0,-20.2],[-23.8,0,7.7]],2:[[0,0,20],[17,0,-10],[-17,0,-10],[70,0,20],[87,0,-10],[53,0,-10]],3:[[0,6,6],[18,3,10],[-18,3,10],[35,0,-10],[-35,0,-10],[20,0,-35],[-20,0,-35]]}
 def dist(a,b): return math.hypot(a[0]-b[0],a[2]-b[2])
@@ -9,7 +11,7 @@ def load_json(path,default):
     with open(path,encoding='utf-8') as f:return json.load(f)
 class Game:
     def __init__(self,seed=1,night=1,scenario=None):
-        self.rng=random.Random(seed);self.seed=seed;self.night=night;self.tick=0;self.sim_tick=0;self.time=DURATIONS[night]*60;self.score=0;self.state='playing';self.flames=3;self.carried=0;self.player=[0.,0.,0.];self.invuln=0;self.dash_cd=0;self.pulse_cd=0;self.dash_left=0;self.pulse_push={};self.face=[0.,1.];self.vel=[0.,0.,0.];self.grounded=True;self.charm=0;self.pause=False;self.prev={x:False for x in ('jump','dash','pulse','interact','pause')};self.input={'move':[0,0],'cam_yaw_deg':0,'jump':False,'dash':False,'pulse':False,'interact':False,'pause':False};self.events=[];self.killscore=set();self.return_ticks=0;self.wind={'active':False,'dir_deg':0};self.wind_timer=0
+        self.rng=random.Random(seed);self.seed=seed;self.night=night;self.tick=0;self.sim_tick=0;self.time=DURATIONS[night]*60;self.score=0;self.state='playing';self.flames=3;self.carried=0;self.player=[0.,0.,0.];self.invuln=0;self.dash_cd=0;self.pulse_cd=0;self.dash_left=0;self.pulse_push={};self.face=[0.,1.];self.vel=[0.,0.,0.];self.grounded=True;self.charm=0;self.pause=False;self.prev={x:False for x in ('jump','dash','pulse','interact','pause')};self.input={'move':[0,0],'cam_yaw_deg':0,'jump':False,'dash':False,'pulse':False,'interact':False,'pause':False};self.events=[];self.killscore=set();self.return_ticks=0;self.wind={'active':False,'dir_deg':0};self.wind_timer=0;self.launch=None;self.fall_wait=0;self.started=False
         self.lanterns=[{'id':f'L{i+1}','pos':p,'lit':False,'deposited':0} for i,p in enumerate(LANTERNS[night])]
         self.spawn_points=self._mote_points();self.shade_points=self._shade_points();self.motes=[self._mote(f'M{i+1}',p) for i,p in enumerate(self.spawn_points[:20])];self.shades=[];self.drifters=[]
         charm_positions={1:[],2:[[35,0,0]],3:[[30,0,25],[-30,0,25]]}[night];self.charms=[{'id':f'C{i+1}','pos':p,'available':True,'respawn':0} for i,p in enumerate(charm_positions)]
@@ -38,13 +40,13 @@ class Game:
     def event(self,name,data):self.events.append({'type':'event','tick':self.tick,'name':name,'data':data})
     def spawn_shades(self,count):
         free=[p for p in self.shade_points if dist(p,self.player)>=15 and not any(dist(p,s['pos'])<3 for s in self.shades)]
-        for _ in range(min(count,6-len(self.shades),len(free))):
+        for _ in range(min(count,SHADE_CAP[self.night]-len(self.shades),len(free))):
             pos=free.pop(0); sid=f'S{len(self.shades)+1}';self.shades.append({'id':sid,'pos':pos[:],'state':'spawning','state_ticks':30,'recoil':[0,0,0]});self.event('shade_spawned',{'id':sid})
     def step(self):
         if self.state not in ('playing','paused'):return
         k=self.tick;self.tick+=1
         pause_pressed=self.input.get('pause',False) and not self.prev['pause'];self.prev['pause']=self.input.get('pause',False)
-        if pause_pressed:self.state='playing' if self.state=='paused' else 'paused';self.event('resumed' if self.state=='playing' else 'paused',{'night':self.night})
+        if pause_pressed:self.state='playing' if self.state=='paused' else 'paused';self.event('resumed' if self.state=='playing' else 'paused',{})
         if self.state=='paused':return
         self.sim_tick+=1;self.time-=1
         self.invuln=max(0,self.invuln-1);self.dash_cd=max(0,self.dash_cd-1);self.pulse_cd=max(0,self.pulse_cd-1);self.charm=max(0,self.charm-1)
@@ -55,13 +57,22 @@ class Game:
         for m in self.motes[:]:
             if m['ttl']>0:m['ttl']-=1
             if m['ttl']==0 and m['kind']=='dropped':self.motes.remove(m)
+        if not self.started:self.started=True;self.event('night_start',{'night':self.night})
+        if self.fall_wait>0:
+            # Ticket-02: after a fall wait 60 ticks (no pickup, no hits), then respawn at the start point.
+            self.fall_wait-=1
+            if self.fall_wait==0:self.player=[0.,0.,0.];self.vel=[0.,0.,0.];self.grounded=True;self.launch=None;self.face=[0.,1.];self.invuln=INVULN
+            self._world_only();return
         self._move_player()
         if FALL_ENABLED and self.player[1]<-10:
-            self.flames-=1;lost=self.carried;self.carried=0;self.event('player_hit',{'by':'fall','flames':self.flames,'dropped':0,'lost':lost});self.player=[0.,0.,0.];self.vel=[0.,0.,0.];self.invuln=90
+            self.flames-=1;lost=self.carried;self.carried=0;self.event('player_hit',{'by':'fall','flames':self.flames,'dropped':0,'lost':lost})
             if self.flames<=0:self.finish('lost','no_flames');return
-        elif not FALL_ENABLED and self.player[1]<-10:
-            self.player=[0.,0.,0.];self.vel=[0.,0.,0.]
-        self._pickup();self._interact();self._safe_zones();self._pulse();self._move_enemies();self._collisions();self._spawns();self._win_check()
+            self.fall_wait=60;self.vel=[0.,0.,0.];self.dash_left=0;self.launch=None
+            self._world_only();return
+        self._pickup();self._interact();self._safe_zones();self._pulse();self._pulse_push();self._move_enemies();self._collisions();self._spawns();self._win_check()
+        for name in ('jump','dash','pulse','interact'): self.prev[name]=self.input.get(name,False)
+    def _world_only(self):
+        self._safe_zones();self._pulse_push();self._move_enemies();self._spawns();self._win_check()
         for name in ('jump','dash','pulse','interact'): self.prev[name]=self.input.get(name,False)
     def _move_player(self):
         x,z=self.input.get('move',[0,0]);mag=math.hypot(x,z)
@@ -69,30 +80,53 @@ class Game:
         th=math.radians(self.input.get('cam_yaw_deg',0));dx=x*math.cos(th)+z*math.sin(th);dz=-x*math.sin(th)+z*math.cos(th)
         if math.hypot(dx,dz)>.01:self.face=[dx,dz]
         if self._pressed('jump') and self.grounded:self.vel[1]=7;self.grounded=False
-        if self._pressed('dash') and self.dash_cd==0:
+        if self._pressed('dash') and self.dash_cd==0 and self.dash_left==0:
             self.dash_left=12;self.dash_cd=0 if self.charm else DASH_CD;self.event('dash',{})
-        if self.dash_left>0:self.vel[0]=self.face[0]*DASH_SPEED;self.vel[2]=self.face[1]*DASH_SPEED;self.dash_left-=1
+        dashing=self.dash_left>0
+        if dashing:self.vel[0]=self.face[0]*DASH_SPEED;self.vel[2]=self.face[1]*DASH_SPEED;self.dash_left-=1
+        elif self.launch is not None:self.vel[0],self.vel[2]=self.launch
         else:self.vel[0]=dx*(7.2 if self.charm else SPEED);self.vel[2]=dz*(7.2 if self.charm else SPEED)
+        ox,oz=self.player[0],self.player[2]
         self.player[0]+=self.vel[0]/60;self.player[2]+=self.vel[2]/60
-        if not self.grounded:self.vel[1]-=20/60;self.player[1]+=self.vel[1]/60
-        surface=self._surface(self.player[0],self.player[2])
-        if surface is not None and self.player[1]<=surface:self.player[1]=surface;self.vel[1]=0;self.grounded=True
+        # vertical cliffs: cannot move into ground higher than the feet (ramps rise gently enough to pass)
+        surf=self._surface(self.player[0],self.player[2])
+        if surf is not None and surf-self.player[1]>0.35:self.player[0],self.player[2]=ox,oz;surf=self._surface(ox,oz)
+        if self.grounded and (surf is None or self.player[1]>surf+0.35):self.grounded=False;self.vel[1]=0
+        elif self.grounded and surf is not None:self.player[1]=surf
+        if not self.grounded and not dashing:self.vel[1]-=20/60;self.player[1]+=self.vel[1]/60
+        surf=self._surface(self.player[0],self.player[2])
+        if not self.grounded and surf is not None and self.vel[1]<=0 and self.player[1]<=surf and surf-self.player[1]<=0.6:
+            self.player[1]=surf;self.vel[1]=0;self.grounded=True;self.launch=None
+        if self.grounded:
+            for (px,py,pz),vy,vh,target in PADS.get(self.night,[]):
+                if math.hypot(self.player[0]-px,self.player[2]-pz)<=1 and abs(self.player[1]-py)<=0.5:
+                    if target is None:hx,hz=0.,-1.
+                    else:
+                        hx,hz=target[0]-px,target[1]-pz;n=math.hypot(hx,hz);hx,hz=hx/n,hz/n
+                    self.launch=[hx*vh,hz*vh];self.vel=[hx*vh,vy,hz*vh];self.grounded=False;break
         if self.night==3 and self.wind_enabled:
-            self.wind_timer=(self.wind_timer+1)%2100;active=self.wind_timer>=1500;self.wind={'active':active,'dir_deg':self.wind.get('dir_deg',0)}
+            # Ticket-02: a 5 s gust every 30 s, direction chosen 2 s before it starts
+            self.wind_timer=(self.wind_timer+1)%1800;active=self.wind_timer>=1500;self.wind={'active':active,'dir_deg':self.wind.get('dir_deg',0)}
             if self.wind_timer==1380:self.wind['dir_deg']=self.rng.randrange(360)
             if active:self.player[0]+=math.cos(math.radians(self.wind['dir_deg']))*2/60;self.player[2]+=math.sin(math.radians(self.wind['dir_deg']))*2/60
     def _surface(self,x,z):
         if self.night==1:return 0 if math.hypot(x,z)<=40 else None
         if self.night==2:return 0 if math.hypot(x,z)<=28 or math.hypot(x-70,z)<=28 or (26<=x<=44 and abs(z)<=2) else None
         r=math.hypot(x,z)
+        if r<=2:return 14.  # bell tower: solid, cannot be climbed
         if r<=8:return 6
         if 12<=r<=24 and z>0:return 3
-        return 0 if r<=45 else None
+        if r>45:return None
+        h=0.
+        for a in (math.radians(30),math.radians(150)):
+            along=x*math.cos(a)+z*math.sin(a);perp=-x*math.sin(a)+z*math.cos(a)
+            if abs(perp)<=1.5 and 24<=along<=30:h=max(h,(30-along)/6*3)
+        return h
     def _pressed(self,key):return self.input.get(key,False) and not self.prev[key]
     def _pickup(self):
         for m in self.motes[:]:
             if self.carried<CAP and dist(m['pos'],self.player)<=PICKUP and abs(m['pos'][1]-self.player[1])<=1.5:
-                self.motes.remove(m);self.carried+=1;self.score+=10;self.event('mote_picked',{'carried':self.carried})
+                self.motes.remove(m);self.carried+=1;self.event('mote_picked',{'carried':self.carried})
         for c in self.charms:
             if c['available'] and dist(c['pos'],self.player)<=PICKUP and abs(c['pos'][1]-self.player[1])<=1.5:c['available']=False;c['respawn']=2700;self.charm=600;self.event('charm_picked',{'charm_id':c['id'],'charm_ticks':600})
     def _interact(self):
@@ -116,16 +150,22 @@ class Game:
                 if math.dist(self.player,[s['pos'][0],s['pos'][1]-.8,s['pos'][2]])<=PULSE_RADIUS:
                     s['state']='stunned';s['state_ticks']=STUN;ids.append(s['id'])
                     self.score+=5
-                    dx=s['pos'][0]-self.player[0];dz=s['pos'][2]-self.player[2];d=math.hypot(dx,dz) or 1;self.pulse_push[s['id']]=[dx/d*4/15,dz/d*4/15,15]
+                    dx=s['pos'][0]-self.player[0];dz=s['pos'][2]-self.player[2];d=math.hypot(dx,dz)
+                    if d<1e-9:dx,dz,d=1.,0.,1.
+                    self.pulse_push[s['id']]=[dx/d*4/15,dz/d*4/15,15]
             for d in self.drifters:
                 if dist(d['pos'],self.player)<=PULSE_RADIUS and d['state']=='chase':d['state']='flee';d['ticks']=240
                 elif dist(d['pos'],self.player)<=PULSE_RADIUS and d['state']=='flee' and d['stolen']:
                     self.motes.extend(self._mote(f'R{self.sim_tick}-{i}',d['pos'],'dropped',480) for i in range(d['stolen']));self.event('drifter_drop',{'drifter_id':d['id'],'amount':d['stolen']});d['stolen']=0;d['state']='removed';d['ticks']=120
             self.event('pulse',{'stunned_ids':ids})
+    def _pulse_push(self):
+        for s in self.shades:
+            p=self.pulse_push.get(s['id'])
+            if p and p[2]>0 and s['state']=='stunned':s['pos'][0]+=p[0];s['pos'][2]+=p[1];p[2]-=1
     def _move_enemies(self):
         for s in self.shades:
             if s['state'] in ('stunned','spawning'):continue
-            dx=self.player[0]-s['pos'][0];dz=self.player[2]-s['pos'][2];d=math.hypot(dx,dz);speed=SHADE_SPEED
+            dx=self.player[0]-s['pos'][0];dz=self.player[2]-s['pos'][2];d=math.hypot(dx,dz);speed=4.5 if self.night==3 else SHADE_SPEED
             if s['state']=='recoil':
                 s['pos'][0]+=s['recoil'][0]/60;s['pos'][2]+=s['recoil'][2]/60;s['state_ticks']-=1
                 if s['state_ticks']<=0:s['state']='chase'
@@ -139,6 +179,7 @@ class Game:
             if d['state']=='idle':
                 if near<=15 and self.carried>=5:d['state']='chase'
                 else:d['pos'][0]+=math.sin(self.sim_tick/30)*2/60
+            if d['state']=='chase' and (self.carried<5 or near>15):d['state']='idle'
             if d['state']=='chase' and near:d['pos'][0]+=(self.player[0]-d['pos'][0])/near*7/60;d['pos'][2]+=(self.player[2]-d['pos'][2])/near*7/60
             if d['state']=='flee':
                 d['ticks']-=1
