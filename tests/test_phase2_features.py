@@ -111,6 +111,17 @@ class Phase2Features(unittest.TestCase):
         self.assertEqual(p['pos'][1], 0.0)
         self.assertGreaterEqual(p['pos'][2], 24.0)
 
+    def test_night3_start_stands_on_tier2_and_can_walk_out(self):
+        rows = run(3, QUIET, [{'tick': 0, 'move': [0, -1]}], 40)
+        self.assertEqual(snap(rows, 0)['player']['pos'], [0.0, 0.0, 0.0])  # contract start point
+        self.assertEqual(snap(rows, 1)['player']['pos'][1], 6.0)           # stands on tier 2, not on the tower top
+        self.assertLess(snap(rows, 40)['player']['pos'][2], -3.5)          # walked out of the tower footprint
+
+    def test_night3_tower_blocks_from_outside(self):
+        sc = dict(QUIET, player={'pos': [0, 6, -4]})
+        rows = run(3, sc, [{'tick': 0, 'move': [0, 1]}], 60)
+        self.assertLessEqual(snap(rows, 60)['player']['pos'][2], -2.0)
+
     def test_pulse_pushes_4m_and_overlap_pushes_plus_x(self):
         sc = dict(QUIET, player={'carried': 3}, shades=[{'id': 'S1', 'pos': [0, 0, 0], 'state': 'wander'}])
         rows = run(1, sc, [{'tick': 0, 'pulse': True}], 16)

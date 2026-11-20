@@ -13,7 +13,7 @@ def load_json(path,default):
     with open(path,encoding='utf-8') as f:return json.load(f)
 class Game:
     def __init__(self,seed=1,night=1,scenario=None):
-        self.rng=random.Random(seed);self.seed=seed;self.night=night;self.tick=0;self.sim_tick=0;self.time=DURATIONS[night]*60;self.score=0;self.state='playing';self.flames=3;self.carried=0;self.player=[0.,0.,0.];self.invuln=0;self.dash_cd=0;self.pulse_cd=0;self.dash_left=0;self.pulse_push={};self.face=[0.,1.];self.vel=[0.,0.,0.];self.grounded=True;self.charm=0;self.pause=False;self.prev={x:False for x in ('jump','dash','pulse','interact','pause')};self.input={'move':[0,0],'cam_yaw_deg':0,'jump':False,'dash':False,'pulse':False,'interact':False,'pause':False};self.events=[];self.killscore=set();self.return_ticks=0;self.wind={'active':False,'dir_deg':0};self.wind_timer=0;self.launch=None;self.fall_wait=0;self.started=False
+        self.rng=random.Random(seed);self.seed=seed;self.night=night;self.tick=0;self.sim_tick=0;self.time=DURATIONS[night]*60;self.score=0;self.state='playing';self.flames=3;self.carried=0;self.player=[0.,0.,0.];self.invuln=0;self.dash_cd=0;self.pulse_cd=0;self.dash_left=0;self.pulse_push={};self.face=[0.,1.];self.vel=[0.,0.,0.];self.grounded=True;self.charm=0;self.pause=False;self.prev={x:False for x in ('jump','dash','pulse','interact','pause')};self.input={'move':[0,0],'cam_yaw_deg':0,'jump':False,'dash':False,'pulse':False,'interact':False,'pause':False};self.events=[];self.killscore=set();self.return_ticks=0;self.wind={'active':False,'dir_deg':0};self.wind_timer=0;self.launch=None;self.fall_wait=0;self.started=False;self.bench=False
         self.lanterns=[{'id':f'L{i+1}','pos':list(p),'lit':False,'deposited':0,'fu':0,'ever_lit':False,'relit_count':0} for i,p in enumerate(LANTERNS[night])];self.successful_lights=0
         self.spawn_points=self._mote_points();self.shade_points=self._shade_points();self.motes=[self._mote(f'M{i+1}',p) for i,p in enumerate(self.spawn_points[:20])];self.shades=[];self.drifters=[]
         charm_positions={1:[],2:[[35,0,0]],3:[[30,0,25],[-30,0,25]]}[night];self.charms=[{'id':f'C{i+1}','pos':p,'available':True,'respawn':0} for i,p in enumerate(charm_positions)]
@@ -59,7 +59,7 @@ class Game:
             if s['state_ticks']>0:s['state_ticks']-=1
             if s['state']=='stunned' and s['state_ticks']==0:s['state']='wander'
             if s['state']=='spawning' and s['state_ticks']==0:s['state']='wander'
-        self._fuel_tick()
+        if not self.bench:self._fuel_tick()
         for m in self.motes[:]:
             if m['ttl']>0:m['ttl']-=1
             if m['ttl']==0 and m['kind']=='dropped':self.motes.remove(m)
@@ -112,11 +112,13 @@ class Game:
         self.player[0]+=self.vel[0]/60;self.player[2]+=self.vel[2]/60
         # vertical cliffs: cannot move into ground higher than the feet (ramps rise gently enough to pass)
         surf=self._surface(self.player[0],self.player[2])
-        if surf is not None and surf-self.player[1]>0.35:self.player[0],self.player[2]=ox,oz;surf=self._surface(ox,oz)
+        inside_tower=self.night==3 and math.hypot(ox,oz)<=2  # the standard start (0,0,0) sits in the bell tower footprint
+        if surf is not None and surf-self.player[1]>0.35 and not inside_tower:self.player[0],self.player[2]=ox,oz
+        surf=self._ground(self.player[0],self.player[2])
         if self.grounded and (surf is None or self.player[1]>surf+0.35):self.grounded=False;self.vel[1]=0
         elif self.grounded and surf is not None:self.player[1]=surf
         if not self.grounded and not dashing:self.vel[1]-=20/60;self.player[1]+=self.vel[1]/60
-        surf=self._surface(self.player[0],self.player[2])
+        surf=self._ground(self.player[0],self.player[2])
         if not self.grounded and surf is not None and self.vel[1]<=0 and self.player[1]<=surf and surf-self.player[1]<=0.6:
             self.player[1]=surf;self.vel[1]=0;self.grounded=True;self.launch=None
         if self.grounded:
@@ -131,6 +133,11 @@ class Game:
             self.wind_timer=(self.wind_timer+1)%1800;active=self.wind_timer>=1500;self.wind={'active':active,'dir_deg':self.wind.get('dir_deg',0)}
             if self.wind_timer==1380:self.wind['dir_deg']=self.rng.randrange(360)
             if active:self.player[0]+=math.cos(math.radians(self.wind['dir_deg']))*2/60;self.player[2]+=math.sin(math.radians(self.wind['dir_deg']))*2/60
+    def _ground(self,x,z):
+        # Assumption (Ticket-02 gives Night 3 no separate start): a player below the tower top stands on tier 2
+        # inside the tower footprint, so the (0,0,0) start lands on Y=6 and can walk out; from outside the tower stays solid.
+        s=self._surface(x,z)
+        return 6. if s==14. and self.player[1]<13 else s
     def _surface(self,x,z):
         if self.night==1:return 0 if math.hypot(x,z)<=40 else None
         if self.night==2:return 0 if math.hypot(x,z)<=28 or math.hypot(x-70,z)<=28 or (26<=x<=44 and abs(z)<=2) else None
@@ -146,6 +153,7 @@ class Game:
         return h
     def _pressed(self,key):return self.input.get(key,False) and not self.prev[key]
     def _pickup(self):
+        if self.bench:return
         for m in self.motes[:]:
             if self.carried<self.capacity() and dist(m['pos'],self.player)<=PICKUP and abs(m['pos'][1]-self.player[1])<=1.5:
                 self.motes.remove(m);self.carried+=1;self.event('mote_picked',{'carried':self.carried})
@@ -203,6 +211,7 @@ class Game:
             if s['state'] in ('stunned','spawning'):continue
             speed=4.5 if self.night==3 else SHADE_SPEED
             dx=self.player[0]-s['pos'][0];dz=self.player[2]-s['pos'][2];d=math.hypot(dx,dz)
+            if self.bench:d=1e9
             if s['state']=='recoil':
                 s['pos'][0]+=s['recoil'][0]/60;s['pos'][2]+=s['recoil'][2]/60;s['state_ticks']-=1
                 if s['state_ticks']<=0:s['state']='chase'
@@ -242,6 +251,7 @@ class Game:
                 if near:d['pos'][0]+=(d['pos'][0]-self.player[0])/near*7/60;d['pos'][2]+=(d['pos'][2]-self.player[2])/near*7/60
                 if d['ticks']<=0:d['state']='removed'
     def _collisions(self):
+        if self.bench:return
         for d in self.drifters:
             if d['state']=='chase' and dist(d['pos'],self.player)<=1.2:
                 amount=min(3,self.carried);self.carried-=amount;d['stolen']=amount;d['state']='flee';d['ticks']=240;self.event('drifter_steal',{'drifter_id':d['id'],'amount':amount,'carried':self.carried})
@@ -256,6 +266,7 @@ class Game:
                 if self.flames<=0:self.finish('lost','no_flames')
                 break
     def _spawns(self):
+        if self.bench:return
         if self.sim_tick%240==0 and len(self.motes)<30:
             free=[p for p in self.spawn_points if not any(dist(p,m['pos'])<1 for m in self.motes)]
             if free:self.motes.append(self._mote(f'R{self.sim_tick}',self.rng.choice(free)))
@@ -270,6 +281,7 @@ class Game:
         candidates=self.shade_points
         return self.rng.choice(candidates) if candidates else [0,0,0]
     def _win_check(self):
+        if self.bench:return
         if self.flames<=0:self.finish('lost','no_flames')
         elif self.time<=0:
             lit=sum(1 for l in self.lanterns if l['lit'])
@@ -282,6 +294,15 @@ class Game:
         self.event('game_over',{'result':state,'reason':reason})
     def snapshot(self):
         return {'type':'snapshot','tick':self.tick,'sim_tick':self.sim_tick,'night':self.night,'state':self.state,'time_left_s':round(self.time/60,3),'score':self.score,'wind':self.wind,'player':{'pos':[round(v,3) for v in self.player],'vel':[round(v,3) for v in self.vel],'grounded':self.grounded,'flames':self.flames,'carried':self.carried,'invuln':self.invuln/60,'dash_cd_s':self.dash_cd/60,'pulse_cd_s':self.pulse_cd/60,'charm_s':self.charm/60,'capacity':self.capacity()},'lanterns':[{'id':l['id'],'pos':l['pos'],'lit':l['lit'],'deposited':l['deposited'],'fuel':round(l['fu']/60,1) if l['lit'] else 0,'ever_lit':l['ever_lit'],'relit_count':l['relit_count']} for l in self.lanterns],'shades':[{'id':s['id'],'pos':[round(v,3) for v in s['pos']],'state':s['state']} for s in self.shades],'motes':[{'id':m['id'],'pos':[round(v,3) for v in m['pos']],'kind':m['kind'],'ttl_s':round(m['ttl']/60,3)} for m in self.motes],'motes_active':len(self.motes),'drifters':[{'id':d['id'],'pos':[round(v,3) for v in d['pos']],'state':d['state'],'stolen':d['stolen']} for d in self.drifters if d['state']!='removed'],'charms':[{'id':c['id'],'available':c['available'],'respawn_s':c['respawn']/60} for c in self.charms]}
+def bench_game(seed=42):
+    """Ticket-04 standard bench scene: Night 1, 200 wander shades and 100 motes spread with the seed, L1-L3 lit at fuel 100."""
+    g=Game(seed,1);g.bench=True;rng=random.Random(seed)
+    def spot(rmax):
+        r=rmax*math.sqrt(rng.random());a=rng.random()*math.tau;return [r*math.cos(a),0.,r*math.sin(a)]
+    g.shades=[{'id':f'S{i+1}','pos':spot(38),'state':'wander','state_ticks':0,'recoil':[0,0,0],'target':None,'drain_t':0} for i in range(200)]
+    g.motes=[g._mote(f'M{i+1}',spot(38)) for i in range(100)]
+    for l in g.lanterns[:3]:l['lit']=True;l['fu']=FUEL_MAX_U;l['ever_lit']=True;l['deposited']=COST
+    return g
 def run_headless(seed,ticks,every,scenario_path=None,inputs_path=None,night=1):
     sc=load_json(scenario_path,{})
     if not isinstance(sc,dict):raise ValueError('scenario must be an object')
