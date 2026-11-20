@@ -7,10 +7,12 @@
 <style>
   html,body{margin:0;height:100%;overflow:hidden;background:#090a18;color:#fff;font:14px system-ui}
   canvas{width:100%;height:100%;display:block}
-  .hud{position:fixed;inset:16px 20px auto;display:flex;justify-content:space-between;pointer-events:none}
-  .brand{color:#f2c77a;letter-spacing:3px;font-weight:600}
-  .panel{background:#111426dd;border:1px solid #66506b;border-radius:8px;padding:10px 14px;line-height:1.7;min-width:180px}
-  .controls{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#101322dd;padding:8px 14px;border:1px solid #66506b;border-radius:8px;color:#d6cde0;white-space:nowrap;pointer-events:none}
+  .hud{position:fixed;inset:16px 16px auto;display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;pointer-events:none;max-width:100%}
+  .brand{color:#f2c77a;letter-spacing:1px;font-weight:600;white-space:nowrap}
+  .panel{background:#111426dd;border:1px solid #66506b;border-radius:8px;padding:10px 14px;line-height:1.7;min-width:150px;max-width:min(220px,calc(100vw - 32px));font-size:13px}
+  .controls{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);background:#101322dd;padding:6px 10px;border:1px solid #66506b;border-radius:8px;color:#d6cde0;pointer-events:none;font-size:11px;max-width:calc(100vw - 24px);text-align:center}
+  @media (max-width:480px){ .controls{white-space:normal;line-height:1.6} }
+  @media (min-width:481px){ .controls{white-space:nowrap} }
   .title{position:fixed;top:40%;width:100%;text-align:center;font:clamp(24px,5vw,56px) Georgia;color:#ffd58a;text-shadow:0 3px 24px #f29f37;pointer-events:none;display:none}
   .title.show{display:block}
   .title small{display:block;font:14px system-ui;letter-spacing:2px;margin-top:10px}
