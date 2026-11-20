@@ -1,5 +1,23 @@
 # Day 12 — AI SDLC: Đảo Đèn Lồng
 
+## Phase 1 prototype
+
+This repository contains the Phase 1 playable prototype and deterministic headless contract. Install and run in three commands:
+
+```bash
+python3 -m pip install -r requirements.txt
+python3 -m unittest discover -s tests
+python3 main.py
+```
+
+Headless example: `python3 main.py --headless --seed 1 --night 1 --ticks 600 --out run.jsonl`.
+
+Controls in the visual prototype are WASD to move, E to interact/light, and Space to pulse. The scoring rules and all tuning values are in `game.contract.json`; the simulation is authoritative for automated tests.
+
+### Sáng tạo của tôi
+
+Mây's pulse pushes nearby Bóng Mực away and briefly stuns them. This is visual/gameplay flavor that does not alter deterministic contract behavior beyond the documented pulse event.
+
 > **Cá nhân** (1 người / 1 MSSV) · Áp dụng SDLC cùng AI để xây một **game 3D** qua **4 phase**, từ yêu cầu ban đầu tới bản phát hành.
 > **Lab board + trợ giảng:** **[Đảo Đèn Lồng Lab](https://claude.ai/artifact/Q1RYyv1dxjUczzCbd2ZnoW)**
 
